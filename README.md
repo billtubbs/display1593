@@ -13,10 +13,28 @@ The LEDs are controlled by two [Teensy 3.1 microcontrollers](https://www.pjrc.co
 This repository contains the code installed on the Raspberry Pi.  The code for the Teensy microcontrollers and other information on the project is available at https://github.com/billtubbs/led-display-project.
 
 
-## LED array data
+## Display driver code
+
+The main code for connecting to the display and setting LED intensities is in this module:
+* [display1593.py])https://github.com/billtubbs/display1593/blob/master/display1593.py)
+
+Here is a simple example showing how to connect to the display:
+
+``` Python
+>>> import display1593 as display
+>>> dis = display.Display1593()
+>>> dis.connect()
+Finding Teensies...
+Trying to connect to Teensies...
+Connection to /dev/ttyACM1 (Teensy1) successful.
+Connection to /dev/ttyACM0 (Teensy2) successful.
+>>> dis.show_image("images/monalisa.png")
+>>> 
+```
 
 Data on the LED co-ordinates, nearest neighbours etc. is currently stored in this file:
 * [ledArray_data_1593.py](https://github.com/billtubbs/display1593/blob/master/ledArray_data_1593.py)
+
 
 ## Current list of display projects in this repository:
 * clock.py - displays a round (analog) clock face
