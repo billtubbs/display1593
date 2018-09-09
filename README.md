@@ -6,11 +6,17 @@ Python code for Raspberry Pi controlling irregular LED display (with 1593 LEDs).
 <IMG SRC="images/led_display.jpg" WIDTH=400>
 
 ## Design
-Display is 4x4 ft in size (1.2 x 1.2 metres) and has 1593 [WS2811 RGB LEDs](https://www.aliexpress.com/item/DC5V-WS2811-pixel-node-50node-a-string-non-waterproof-SIZE-13mm-13mm/1624010105.html) behind a translucent plastic screen.
+Display is 4x4 ft in size (1.2 x 1.2 metres) and has 1593 [WS2811 RGB LEDs](https://www.aliexpress.com/item/DC5V-WS2811-pixel-node-50node-a-string-non-waterproof-SIZE-13mm-13mm/1624010105.html) behind a translucent plastic screen.  The LEDs are arranged according to a randomly generated pattern whereby adjacent LEDs are roughly 50 mm apart (on average) but are not arranged in a classical x-y (Cartesian) grid.
+
 The LEDs are controlled by two [Teensy 3.1 microcontrollers](https://www.pjrc.com/teensy/teensy31.html) connected to a [Raspberry Pi Zero](https://www.raspberrypi.org/products/raspberry-pi-zero/) by USB.
 
 This repository contains the code installed on the Raspberry Pi.  The code for the Teensy microcontrollers and other information on the project is available at https://github.com/billtubbs/led-display-project.
 
+
+## LED array data
+
+Data on the LED co-ordinates, nearest neighbours etc. is currently stored in this file:
+* ledArray_data_1593.py
 
 ## Current list of display projects in this repository:
 * clock.py - displays a round (analog) clock face
