@@ -16,7 +16,7 @@ This repository contains the code installed on the Raspberry Pi.  The code for t
 ## Display driver code
 
 The main code for connecting to the display and setting LED intensities is in this module:
-* [display1593.py])https://github.com/billtubbs/display1593/blob/master/display1593.py)
+* [display1593.py](https://github.com/billtubbs/display1593/blob/master/display1593.py)
 
 Here is a simple example showing how to connect to the display:
 
