@@ -16,7 +16,7 @@ This repository contains the code installed on the Raspberry Pi.  The code for t
 ## LED array data
 
 Data on the LED co-ordinates, nearest neighbours etc. is currently stored in this file:
-* ledArray_data_1593.py
+* [ledArray_data_1593.py](https://github.com/billtubbs/display1593/blob/master/ledArray_data_1593.py)
 
 ## Current list of display projects in this repository:
 * clock.py - displays a round (analog) clock face
