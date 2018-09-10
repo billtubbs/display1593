@@ -48,12 +48,15 @@ class Agent(object):
         h = (float(self.like_neighbours) / self.n_neighbours) >= self.threshold
         #print "Agent's happiness: (%d/%d) >= %4.1f = %s" % \
         #   ((self.like_neighbours, self.n_neighbours, self.threshold, str(h)))
+
         return h
 
     def move(self, show=True):
         """Moves agent to a random new location.
         """
 
+        # TODO: Could make this more systematic?
+        # Carry out looped search here maybe
         self.new_id = np.random.choice(self.population.empty_spaces)
 
         self.population.empty_spaces.append(self.id)
@@ -87,7 +90,7 @@ class Population(object):
     agents in a Schelling segregation model.
     """
 
-    def __init__(self, dis, n, probs, thresholds, n_neighbours=10, cols=None,
+    def __init__(self, dis, n, probs, thresholds, n_neighbours=9, cols=None,
                  background_col=(0, 0, 0)):
 
         self.display = dis
@@ -108,6 +111,17 @@ class Population(object):
         self.agents = [Agent(self, group, thresholds[group]) for group in
             np.random.choice(self.n_groups, p=probs, size=n)]
 
+    def count_like_neighbours(self, agent):
+
+        assert len(agent.neighbour_ids) == self.n_neighbours
+        tally = dict.fromkeys(range(self.n_groups), 0)
+
+        for n in agent.neighbour_ids:
+            n_grp = self.agents[n].group
+            tally[n_grp] = tally.get(n_grp, 0) + 1
+
+        agent.like_neighbours = tally[agent.group]
+
     def update_agents(self):
         """Updates the locations of all agents in the model
         once. Returns False if the mouse was clicked in the
@@ -115,75 +129,82 @@ class Population(object):
         """
 
         # build a list of all agent locations
+        # This would be faster if they were already in one array
         all_locations = [agent.location for agent in self.agents]
 
         # Flag used to detect when no agents moved in one round
         any_moved = False
+        moved = True
 
         print "Updating all agents..."
         for i, agent in enumerate(self.agents):
 
             #print "Checking neighbours for agent", i, "group:", agent.group
 
-            # Build a KDTree from all agent locations except
-            # the current agent's location
-            del all_locations[i]
-            # TODO: Do we need to rebuild this each time?
-            tree = KDTree(all_locations)
-
-            #print "KD-Tree rebuilt"
+            # Build a KDTree from all agent locations
+            if moved:
+                tree = KDTree(all_locations)
+                #print "KD-Tree rebuilt"
             moved = False
 
-            while True:
+            # Query the KDTree to find the k nearest neighbours.
+            # KDTree.query returns two arrays, the first contains the
+            # nearest neighbour distances, the second contains the
+            # indeces of the nearest neighbours. Here, we ignore the
+            # first row as this is the location of the current agent.
+            k = self.n_neighbours + 1
+            agent.neighbour_ids = tree.query(agent.location, k=k)[1][1:]
 
-                # Query the KDTree to find the k nearest neighbours.
-                # KDTree.query returns two arrays, the first contains the
-                # nearest neighbour distances, the second contains the
-                # indeces of the nearest neighbours
-                agent.neighbour_ids = tree.query(agent.location, k=10)[1]
+            #print "Agent's neighbours:", agent.neighbour_ids, \
+            #    [self.agents[a].group for a in agent.neighbour_ids]
+            self.count_like_neighbours(agent)
+            #print "Agent has %d like neighbours." % agent.like_neighbours
 
-                # Because the current agent's location was not in the list
-                # of points provided to KDTree, need to increment all
-                # indeces > i by 1
-                for j, neighbour_id in enumerate(agent.neighbour_ids):
-                    if neighbour_id > i:
-                        agent.neighbour_ids[j] += 1
+            if not agent.happy():
 
-                #print "Agent's neighbours:", agent.neighbour_ids, \
-                #    [self.agents[a].group for a in agent.neighbour_ids]
+                #print "Agent not happy..."
+                # Now rebuild the KDTree from all agent locations except
+                # the current agent's location (this makes hunting for
+                # a new location faster)
+                del all_locations[i]
+                tree = KDTree(all_locations)
 
-                tally = dict.fromkeys(range(self.n_groups), 0)
+                searches = 0
+                while not agent.happy():
 
-                for n in agent.neighbour_ids:
-                    n_grp = self.agents[n].group
-                    tally[n_grp] = tally.get(n_grp, 0) + 1
-
-                #print "Tally:", tally
-
-                agent.like_neighbours = tally[agent.group]
-
-                #print "Agent has", agent.like_neighbours, "like neighbours."
-
-                # Stop moving when agent's happiness criteria is met
-                if agent.happy():
-                    break
-                else:
-                    #print "Agent not happy.  Move agent."
-                    #raw_input("Press enter to contine...")
                     agent.move(show=False)
                     moved = True
                     any_moved = True
 
-            if moved:
-                agent.show()
+                    k = self.n_neighbours
+                    agent.neighbour_ids = tree.query(agent.location, k=k)[1]
 
-            # Put the current agent's location back in the list
-            all_locations.insert(i, agent.location)
+                    # Because the current agent's location was not in the list
+                    # of points provided to KDTree, need to increment all
+                    # indeces > i by 1
+                    for j, neighbour_id in enumerate(agent.neighbour_ids):
+                        if neighbour_id > i:
+                            agent.neighbour_ids[j] += 1
+
+                    #print "Agent's neighbours:", agent.neighbour_ids, \
+                    #    [self.agents[a].group for a in agent.neighbour_ids]
+
+                    self.count_like_neighbours(agent)
+
+                    #print "Agent has", agent.like_neighbours, \
+                    #       "like neighbours."
+                    searches += 1
+                    if searches > 50:
+                        #print "Gave up looking."
+                        break
+
+                # Put the current agent's location back in the list
+                all_locations.insert(i, agent.location)
 
             t = datetime.now()
 
-            # TODO: check for mouse click or timer here
             if moved == True:
+                agent.show()
                 print "%02d:%02d:%02d Agent %d moved." % (t.hour, t.minute,
                                                           t.second, i)
             #raw_input("Press enter to contine...")
@@ -233,8 +254,9 @@ def main():
     while True:
         dis.clear()
 
+        print "Initializing population model..."
         # Define population and model parameters
-        n_agents = display.leds.numCells - 300
+        n_agents = display.leds.numCells - 400
 
         # Randomly sort the colours
         shuffle(cols)
@@ -252,7 +274,7 @@ def main():
                                 n_neighbours=n_neighbours,
                                 cols=cols[0:n_groups])
 
-        print "Population of", n_agents, " agents initialized."
+        print n_agents, " agents initialized."
         print population.n_groups, "groups"
         print "Distribution:", population.probs
         print "Thresholds:", thresholds
