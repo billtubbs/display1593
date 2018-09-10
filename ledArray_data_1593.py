@@ -1,5 +1,15 @@
 # Python module to store final LED display design data
 
+# Contains the following variable assignments
+#
+# ledsPerStrip
+# firstLedOfStrip
+# ledIndex
+# centres_x
+# centres_y
+# nearestNeighbours
+# nearestNeighbourDistances
+
 import numpy as np
 
 numCells = 1593
@@ -51,6 +61,59 @@ def build_lookup_table():
     return d
 
 ledIndex = build_lookup_table()
+
+# Basic set of colours as dictionary
+colour = {
+    'black':   (0x00, 0x00, 0x00),
+    'red':     (0x24, 0x00, 0x00),
+    'green':   (0x00, 0x20, 0x00),
+    'yellow':  (0x24, 0x20, 0x00),
+    'blue':    (0x00, 0x00, 0x30),
+    'magenta': (0x24, 0x00, 0x30),
+    'cyan':    (0x00, 0x20, 0x30),
+    'white':   (0x24, 0x20, 0x30),
+    'grey':    (0x12, 0x10, 0x18),
+    'orange':  (0x24, 0x14, 0x00),
+    'brown':   (0x20, 0x15, 0x15),
+    'dark red': (0x12, 0x0, 0x0)
+}
+
+# Basic set of 8 colours as ndarray
+colourArray8 = np.array((
+    0x000000, # 0 BLACK
+    0x240000, # 1 RED
+    0x002000, # 2 GREEN
+    0x242000, # 3 YELLOW (red and green)
+    0x000030, # 4 BLUE
+    0x240030, # 5 MAGENTA (blue and red)
+    0x002030, # 6 CYAN (blue and green)
+    0x242030  # 7 WHITE (red, green and blue)
+))
+
+
+# Use this array of colour values to simulate a spectrum
+# of colours of the rainbow (64 discrete values).  The colour
+# intensities are adjusted to compensate for perceived
+# differences in intensity between R, G, and B.
+
+colourArray = np.array((
+    0x000000, 0x030000, 0x070000, 0x0a0000,
+    0x0e0000, 0x110000, 0x150000, 0x180000,
+    0x1c0000, 0x1f0000, 0x230000, 0x260000,
+    0x2a0000, 0x2d0000, 0x310000, 0x340000,
+    0x380000, 0x340500, 0x310a00, 0x2d0f00,
+    0x2a1400, 0x261900, 0x231e00, 0x1f2300,
+    0x1c2800, 0x182d00, 0x153200, 0x113700,
+    0x0e3c00, 0x0a4100, 0x074600, 0x034b00,
+    0x005000, 0x004b08, 0x004610, 0x004118,
+    0x003c20, 0x003728, 0x003230, 0x002d38,
+    0x002840, 0x002348, 0x001e50, 0x001958,
+    0x001460, 0x000f68, 0x000a70, 0x000578,
+    0x000080, 0x040480, 0x080880, 0x0c0c80,
+    0x101080, 0x141480, 0x181880, 0x1c1c80,
+    0x202080, 0x242480, 0x282880, 0x2c2c80,
+    0x303080, 0x343480, 0x383880, 0x3c3c80
+))
 
 
 # Physical x co-ordinates of all leds
@@ -3893,76 +3956,3 @@ nearestNeighbourDistances = np.array((
 	(4.97011774e+01, 5.00184084e+01, 5.10997949e+01, 5.22543388e+01, 5.28095205e+01, 6.86423303e+01),
 	(5.01639071e+01, 5.01810255e+01, 5.08549238e+01, 5.28095205e+01, 6.08870684e+01, 6.62121150e+01)
 ))
-
-
-# Use this array of colour values to simulate a spectrum
-# of colours of the rainbow (64 discrete values).  The colour
-# intensities are adjusted to compensate for perceived
-# differences in intensity between R, G, and B.
-
-colourArray = np.array( \
-    (   0x000000,  \
-        0x030000,  \
-        0x070000,  \
-        0x0a0000,  \
-        0x0e0000,  \
-        0x110000,  \
-        0x150000,  \
-        0x180000,  \
-        0x1c0000,  \
-        0x1f0000,  \
-        0x230000,  \
-        0x260000,  \
-        0x2a0000,  \
-        0x2d0000,  \
-        0x310000,  \
-        0x340000,  \
-        0x380000,  \
-        0x340500,  \
-        0x310a00,  \
-        0x2d0f00,  \
-        0x2a1400,  \
-        0x261900,  \
-        0x231e00,  \
-        0x1f2300,  \
-        0x1c2800,  \
-        0x182d00,  \
-        0x153200,  \
-        0x113700,  \
-        0x0e3c00,  \
-        0x0a4100,  \
-        0x074600,  \
-        0x034b00,  \
-        0x005000,  \
-        0x004b08,  \
-        0x004610,  \
-        0x004118,  \
-        0x003c20,  \
-        0x003728,  \
-        0x003230,  \
-        0x002d38,  \
-        0x002840,  \
-        0x002348,  \
-        0x001e50,  \
-        0x001958,  \
-        0x001460,  \
-        0x000f68,  \
-        0x000a70,  \
-        0x000578,  \
-        0x000080,  \
-        0x040480,  \
-        0x080880,  \
-        0x0c0c80,  \
-        0x101080,  \
-        0x141480,  \
-        0x181880,  \
-        0x1c1c80,  \
-        0x202080,  \
-        0x242480,  \
-        0x282880,  \
-        0x2c2c80,  \
-        0x303080,  \
-        0x343480,  \
-        0x383880,  \
-        0x3c3c80    ))
-
