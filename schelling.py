@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 #   Implementation of the Schelling Segregation Model
 #
@@ -21,8 +22,9 @@ import display1593 as display
 
 
 class Agent(object):
-    """Agent class for simulating an agent in a
-    Schelling segregation model."""
+    """Agent class for simulating an agent in a Schelling
+    segregation model.
+    """
 
     def __init__(self, population, group, threshold):
 
@@ -39,40 +41,51 @@ class Agent(object):
         self.n_neighbours = self.population.n_neighbours
 
     def happy(self):
+        """Calculates agent's happiness based on current
+        neighbours.
+        """
 
         h = (float(self.like_neighbours) / self.n_neighbours) >= self.threshold
-        #print "Agent's happiness: (%d/%d) >= %4.1f = %s" % ((self.like_neighbours, self.n_neighbours, self.threshold, str(h)))
+        #print "Agent's happiness: (%d/%d) >= %4.1f = %s" % \
+        #   ((self.like_neighbours, self.n_neighbours, self.threshold, str(h)))
         return h
 
-    def move(self):
-        """Moves agent to a random new location."""
+    def move(self, show=True):
+        """Moves agent to a random new location.
+        """
 
         self.new_id = np.random.choice(self.population.empty_spaces)
 
         self.population.empty_spaces.append(self.id)
         self.unshow()
         self.id = self.new_id
-        self.show()
         self.population.empty_spaces.remove(self.id)
 
         self.location = (
             display.leds.centres_x[self.id],
             display.leds.centres_y[self.id]
         )
+        if show:
+            self.show()
 
     def show(self):
         """Show the agent on the LED array by lighting the
-        appropriate LED with the agent's group colour."""
+        appropriate LED with the agent's group colour.
+        """
+
         self.population.display.setLed(self.id, self.colour)
 
     def unshow(self):
-        """Clear the LED representing the agent."""
+        """Clear the LED representing the agent.
+        """
+
         self.population.display.setLed(self.id, self.population.background_col)
 
 
 class Population(object):
     """Population class for simulating a population of
-    agents in a Schelling segregation model."""
+    agents in a Schelling segregation model.
+    """
 
     def __init__(self, dis, n, probs, thresholds, n_neighbours=10, cols=None,
                  background_col=(0, 0, 0)):
@@ -98,7 +111,8 @@ class Population(object):
     def update_agents(self):
         """Updates the locations of all agents in the model
         once. Returns False if the mouse was clicked in the
-        window, otherwise True."""
+        window, otherwise True.
+        """
 
         # build a list of all agent locations
         all_locations = [agent.location for agent in self.agents]
@@ -114,6 +128,7 @@ class Population(object):
             # Build a KDTree from all agent locations except
             # the current agent's location
             del all_locations[i]
+            # TODO: Do we need to rebuild this each time?
             tree = KDTree(all_locations)
 
             #print "KD-Tree rebuilt"
@@ -122,16 +137,16 @@ class Population(object):
             while True:
 
                 # Query the KDTree to find the k nearest neighbours.
-                # KDTree.query returns two arrays, the first contains
-                # the nearest neighbour distances, the second
-                # contains the indeces of the nearest neighbours
+                # KDTree.query returns two arrays, the first contains the
+                # nearest neighbour distances, the second contains the
+                # indeces of the nearest neighbours
                 agent.neighbour_ids = tree.query(agent.location, k=10)[1]
 
-                # Because the current agent's location was not in
-                # the list of points provided to KDTree, need to
-                # increment all indeces > i by 1
-                for j in range(len(agent.neighbour_ids)):
-                    if agent.neighbour_ids[j] > i:
+                # Because the current agent's location was not in the list
+                # of points provided to KDTree, need to increment all
+                # indeces > i by 1
+                for j, neighbour_id in enumerate(agent.neighbour_ids):
+                    if neighbour_id > i:
                         agent.neighbour_ids[j] += 1
 
                 #print "Agent's neighbours:", agent.neighbour_ids, \
@@ -155,9 +170,12 @@ class Population(object):
                 else:
                     #print "Agent not happy.  Move agent."
                     #raw_input("Press enter to contine...")
-                    agent.move()
+                    agent.move(show=False)
                     moved = True
                     any_moved = True
+
+            if moved:
+                agent.show()
 
             # Put the current agent's location back in the list
             all_locations.insert(i, agent.location)
@@ -166,13 +184,15 @@ class Population(object):
 
             # TODO: check for mouse click or timer here
             if moved == True:
-                print "%02d:%02d:%02d Agent %d moved." % (t.hour, t.minute, t.second, i)
+                print "%02d:%02d:%02d Agent %d moved." % (t.hour, t.minute,
+                                                          t.second, i)
             #raw_input("Press enter to contine...")
 
         return any_moved
 
     def show(self):
-        """Show all agents on the LED array."""
+        """Show all agents on the LED array.
+        """
 
         for agent in self.agents:
             agent.show()
@@ -219,7 +239,7 @@ def main():
         # Randomly sort the colours
         shuffle(cols)
 
-        p=[0.5, 0.4, 0.1]
+        p = [0.5, 0.4, 0.1]
         n_groups = np.random.choice(range(2, 5), p=p)
         x = [(np.random.rand() + 0.25) for i in range(n_groups)]
         t = sum(x)
@@ -228,7 +248,9 @@ def main():
         thresholds = np.random.choice([0.25, 0.35, 0.5], size=n_groups)
         n_neighbours = 9
 
-        population = Population(dis, n_agents, probs, thresholds, n_neighbours=n_neighbours, cols=cols[0:n_groups])
+        population = Population(dis, n_agents, probs, thresholds,
+                                n_neighbours=n_neighbours,
+                                cols=cols[0:n_groups])
 
         print "Population of", n_agents, " agents initialized."
         print population.n_groups, "groups"
