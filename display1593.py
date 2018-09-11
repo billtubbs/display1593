@@ -23,10 +23,17 @@ import serial
 import time
 import os
 import pickle
+import logging
 import numpy as np
 from scipy import ndimage
 from scipy import misc
 from itertools import izip
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Load irregular LED array data
 import ledArray_data_1593 as leds
@@ -56,8 +63,10 @@ addresses = ('/dev/ttyACM0', '/dev/ttyACM1')
 
 class Display1593Error(Exception):
     """Exception class for reporting display1593 errors."""
+
     def __init__(self, value):
         self.value = value
+
     def __str__(self):
         return repr(self.value)
 
@@ -84,14 +93,14 @@ class Teensy(object):
         try:
             response = self.serial.readline().rstrip()
         except:
-            print "Connection to", self.address, "failed."
+            logging.info("Connection to %s failed.", self.address)
             self.serial.close()
             return result
 
         if response.startswith("Teensy"):
             self.name = response
-            print "Connection to", self.address, "(" + \
-                  response + ") successful."
+            logging.info("Connection to %s (%s) successful.",
+                         self.address, response)
             result = True
 
         return result
@@ -107,17 +116,16 @@ class Display1593(object):
     def __init__(self):
         self.tys = None
 
-
     def connect(self, addresses=addresses):
 
-        print "Finding Teensies..."
+        logging.info("Finding Teensies...")
 
         tty_files = []
         for file in os.listdir('/dev'):
             if file.startswith('ttyACM'):
                 tty_files.append(file)
 
-        print "Trying to connect to Teensies..."
+        logging.info("Trying to connect to Teensies...")
 
         self.tys = []
         for a in tty_files[0:2]:
@@ -131,7 +139,7 @@ class Display1593(object):
 
         if self.tys[1].name == 'Teensy1':
             self.tys[0], self.tys[1] = (self.tys[1], self.tys[0])
-            print "(Teensies swapped)"
+            logging.info("(Teensies swapped)")
 
         if (self.tys[0].name, self.tys[1].name) != ('Teensy1', 'Teensy2'):
             raise Display1593Error(
@@ -142,7 +150,6 @@ class Display1593(object):
                 )
             )
 
-
     def setLed(self, led, col):
         """Set colours of an individual LED."""
 
@@ -150,8 +157,8 @@ class Display1593(object):
         id = ledRef[1]
         self.tys[ledRef[0]].serial.write('S' + chr(id >> 8) + chr(id % 256) \
             + chr(col[0]) + chr(col[1]) + chr(col[2]) +'\n')
-        #print "Led %d set to 0x%2x%2x%2x [t%d: %d]" % (led, col[0], col[1], col[2], ledRef[0], id)
-
+        #logging.info("Led %d set to 0x%2x%2x%2x [t%d: %d]", led, col[0],
+        #             col[1], col[2], ledRef[0], id)
 
     def setLeds(self, ledIDs, cols):
         """setLeds(self, ledIDs, cols)
@@ -163,7 +170,8 @@ class Display1593(object):
 
         ledIDs  - list or tuple containing the LED ID numbers
         cols    - list or tuple containing the LED colour
-                  intensities (r, g, b)."""
+                  intensities (r, g, b).
+        """
 
         if len(cols) != len(ledIDs):
             raise Display1593Error("ledIDs and cols must be sequences"
@@ -190,8 +198,7 @@ class Display1593(object):
                 self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
                 self.tys[i].serial.write("".join([item for item in s[i]]))
 
-            print cnt[i], "leds set on Teensy", i
-
+            logging.info("%d leds set on Teensy %d", cnt[i], i)
 
     def setAllLeds2(self, cols):
 
@@ -199,23 +206,22 @@ class Display1593(object):
             raise Display1593Error("setAllLeds() requires a sequence of"
                                    " %d colours." % leds.numCells)
 
-        char_data = np.array(cols, dtype='int8').ravel().view('S{}'.format(cols.size))[0]
+        char_data = np.array(cols, dtype='int8').ravel() \
+                        .view('S{}'.format(cols.size))[0]
 
         mid_point = leds.numLeds[0]*3
         self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
         self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
-
 
     def setAllLeds(self, cols):
         """setAllLeds(self, cols)
 
         Set all LEDs to the specified sequence of colours.
 
-        Arguments:
-        ---------
-
-        cols - sequence of 1593 (r, g, b) values or an
-               array of values of shape (1593, 3)."""
+        Args:
+            cols: sequence of 1593 (r, g, b) values or an
+                array of values of shape (1593, 3).
+        """
 
         if len(cols) != leds.numCells:
             raise Display1593Error("setAllLeds() requires a sequence of"
@@ -229,7 +235,6 @@ class Display1593(object):
             self.send_chars(controller, char_data)
             start = end
 
-
     def send_chars(self, controller, char_data):
 
         n = controller.serial.write(char_data)
@@ -240,13 +245,11 @@ class Display1593(object):
                   "{} bytes sent out of {}.".format(n, len(char_data))
                   )
 
-
     def clear(self):
         """Set all LEDs to black (0, 0, 0)."""
 
         for controller in self.tys:
             controller.serial.write('CLS')
-
 
     def getBrightness(self):
         """getBrightness() -> int
@@ -261,7 +264,6 @@ class Display1593(object):
                 data = controller.serial.read(size=2)
                 return (ord(data[0]) << 8) + ord(data[1])
 
-
     def getColour(self, led):
         """getColour(led) -> (int, int, int)
 
@@ -274,13 +276,12 @@ class Display1593(object):
         col = controller.serial.read(size=3)
         return (ord(col[0]), ord(col[1]), ord(col[2]))
 
-
     def prepare_image(self, image):
         """Adjusts the size of the ndimage stored in image and
         returns a 256x256 pixel image suitable for use with
         the method convert_image()."""
 
-        # print "Preparing image ", image.shape
+        #logging.info("Preparing image %s", str(image.shape))
 
         # Find out how many layers the image has
         image_shape = image.shape[:2]
@@ -298,23 +299,24 @@ class Display1593(object):
         if imageCols > 3:
             image = image[:,:,:3]
             imageCols = image.shape[2]
-            #print "Image reduced to %d layers (R, G, B)" % imageCols
+            #logging.info("Image reduced to %d layers (R, G, B)", imageCols)
 
         # Determine smallest dimension (x or y)
         imageSize = min(image_shape)
 
         if not image_shape[0] == image_shape[1]:
             if image_shape[0] > imageSize:
-                #print "Image is not square.  Y-axis will be cropped."
+                #logging.info("Image is not square. Y-axis will be cropped.")
                 y = (image_shape[0] - imageSize)/2
                 image = image[:][y:y+imageSize]
             elif image_shape[1] > imageSize:
-                #print "Image is not square.  X-axis will be cropped."
+                #logging.info("Image is not square. X-axis will be cropped.")
                 x = (image_shape[1] - imageSize)/2
                 image = image[:, x:x+imageSize, :]
 
             imageShape = image.shape[:2]
-            #print "Cropped image size: %dx%d" % (image_shape[0], image_shape[1])
+            #logging.info("Cropped image size: %dx%d", image_shape[0],
+            #             image_shape[1])
 
         # Define arrays for maximum colour intensities
         # of final image
@@ -327,12 +329,12 @@ class Display1593(object):
                 selCol = np.array([i], dtype=np.intp)
                 colMin = image[:, :, selCol].min()
                 colMax = image[:, :, selCol].max()
-                #print "Colour %d range: %d to %d" % (i, colMin, colMax)
+                #logging.info("Colour %d range: %d to %d", i, colMin, colMax)
                 maxInt[i] = max(255,colMax)
         else:
-            print "This is a black and white image."
-            print "Intensity range: %d to %d" % (image.min(), image.max())
-            print "Specify RGB intensities for final image (0-31):"
+            logging.info("This is a black and white image.")
+            logging.info("Intensity range: %d to %d", image.min(), image.max())
+            logging.info("Specify RGB intensities for final image (0-31):")
 
             maxInt = np.zeros((3), dtype = 'uint8')
             for i, c in enumerate(cols):
@@ -341,7 +343,7 @@ class Display1593(object):
                     try:
                         f = float(s)
                     except:
-                        print "Enter a number between 0 and 255"
+                        print("Enter a number between 0 and 255")
                         continue
                     maxInt[i] = f
                     break
@@ -357,34 +359,17 @@ class Display1593(object):
             interp='bilinear',
             mode=None
         )
-        #print "Image re-sized:", s_image.shape[:2]
+        #logging.info("Image re-sized: %s", str(s_image.shape[:2]))
 
         return s_image
 
-    # Old version - was too slow!
-    # def convert_image_to_1593(image_array):
-    #     global supersampling_data
-    #     global numCells
-    #     img_data = image_array.reshape(65536, 3)
-    #     z = np.zeros((numCells, image_array.shape[2]), dtype = int)
-    #     for i, j, c in izip(
-    #                 supersampling_data.i_masks[0],
-    #                 supersampling_data.i_masks[1],
-    #                 img_data
-    #             ):
-    #         if i >= 0:
-    #             z[i,:] += c
-    #         if j >= 0:
-    #             z[j,:] += c
-    #     return z / supersampling_data.pixel_counts
-
     def convert_image(self, image_array):
         """Convert 256 x 256 RGB image array to 1593 RGB led intensities."""
+
         global mask1593
         shape = image_array.shape
         img_data = image_array.reshape(shape[0]*shape[1], shape[2])
         return np.mean(img_data[mask1593], axis=1).astype(int)
-
 
     def show_image(self, filename, dimness=8):
 
@@ -392,12 +377,11 @@ class Display1593(object):
         z = self.convert_image(self.prepare_image(img))
         self.setAllLeds(z**2/(256*dimness))
 
-
     def camera_grab(self, filename):
         """Use the Picamera to take and image and save it
         to a file in the current working directory."""
 
-        print "Taking image with Picamera..."
+        logging.info("Taking image with Picamera...")
 
         with picamera.PiCamera() as camera:
             camera.resolution = (1024, 768)
@@ -406,8 +390,7 @@ class Display1593(object):
             time.sleep(2)
             camera.capture(filename)
 
-        print "Image saved to file", filename
-
+        logging.info("Image saved to file", filename)
 
     def image_snapshot(self, image, point, size):
         x = point[0]

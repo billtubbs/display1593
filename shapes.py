@@ -18,6 +18,7 @@ Pygame code is based on a tutorial from
 http://www.petercollingridge.co.uk/pygame-physics-simulation
 """
 
+import logging
 import display1593 as display
 import pygame
 import pygame.gfxdraw
@@ -25,6 +26,11 @@ import random
 import math
 from datetime import datetime
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 background_colour = (0, 0, 0)
 
@@ -206,16 +212,18 @@ class RandomShape(Shape):
             self.rotation = 0
 
         now = datetime.now()
-        print "{:s}: {:s}".format(now.strftime("%H:%M"), self.type)
+        logging.info("%s (%.0f, %.0f) created.", self.type, self.x, self.y)
 
     def check_bounds(self):
         if (self.x < -width or self.x > 2*width or
             self.y < -height or self.y > 2*height):
+             logging.info("%s (%.0f, %.0f) removed.", self.type, self.x,
+                          self.y)
              self.random_init()
 
 
-print "\n-------------- shapes.py --------------\n"
-print "Display Random Moving Shapes."
+logging.info("\n\n-------------- shapes.py --------------\n")
+logging.info("Display slowly moving random shapes.")
 
 dis = display.Display1593()
 dis.connect()
@@ -227,8 +235,7 @@ dis.clear()
 #pygame.display.set_caption('Shapes')
 
 # Use this if you do not want to have a visible window
-screen = pygame.Surface((width,height))
-
+screen = pygame.Surface((width, height))
 clock = pygame.time.Clock()
 
 number_of_shapes = 10
@@ -263,6 +270,8 @@ while running:
 
     # Save image to disk
     pygame.image.save(screen, "shapes.png")
+
+    # Tell display to show image
     dis.show_image("shapes.png")
 
     clock.tick(0.5)

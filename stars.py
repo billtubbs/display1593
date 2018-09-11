@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # Python script for irregular 1593 LED array
 # Randomly displays stars and then they slowly
 # fade away...
@@ -5,15 +6,22 @@
 import display1593 as display
 from datetime import datetime
 import numpy as np
+import logging
 
-print "\n-------------- Fading Stars Algorithm --------------\n"
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+logging.info("\n\n------------ Fading Stars Algorithm ------------\n")
 
 dis = display.Display1593()
 dis.connect()
 dis.clear()
 
 stars = []
-non_stars = range(display.leds.numCells)
+non_stars = list(range(display.leds.numCells))
 
 # Must be a float greater than 1.0
 fade_rate = 1.018
@@ -31,10 +39,7 @@ time_step = 2.0
 t = datetime.now()
 minute = t.minute
 
-print "%02d:%02d:%02d Beginning to show stars..." % (
-    t.hour, t.minute, t.second
-)
-
+logging.info("Beginning to show stars...")
 
 while True:
 
@@ -63,7 +68,5 @@ while True:
     t = datetime.now()
 
     if minute != t.minute:
-        print "%02d:%02d:%02d Stars: %d" % (
-            t.hour, t.minute, t.second, len(stars)
-        )
+        logging.info(len(stars))
         minute = t.minute

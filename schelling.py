@@ -11,14 +11,21 @@
 #
 
 
+import logging
+import time
 import numpy as np
 from scipy.spatial import KDTree
 from itertools import izip
 from datetime import datetime
-import time
 from random import shuffle
 
 import display1593 as display
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 
 class Agent(object):
@@ -46,8 +53,8 @@ class Agent(object):
         """
 
         h = (float(self.like_neighbours) / self.n_neighbours) >= self.threshold
-        #print "Agent's happiness: (%d/%d) >= %4.1f = %s" % \
-        #   ((self.like_neighbours, self.n_neighbours, self.threshold, str(h)))
+        #logging.info("Agent's happiness: (%d/%d) >= %4.1f = %s",
+        #    self.like_neighbours, self.n_neighbours, self.threshold, str(h))
 
         return h
 
@@ -96,7 +103,6 @@ class Population(object):
         self.display = dis
         self.n_agents = n
         self.n_groups = len(probs)
-        self.probs = probs
         if cols == None:
             colour_set = display.leds.colourArray8[1:(self.n_groups + 1)]
             cols = [(col >> 16, (col >> 8) % 256, col % 256) for col in
@@ -136,15 +142,16 @@ class Population(object):
         any_moved = False
         moved = True
 
-        print "Updating all agents..."
+        logging.info("Updating all agents...")
         for i, agent in enumerate(self.agents):
 
-            #print "Checking neighbours for agent", i, "group:", agent.group
+            #logging.info("Checking neighbours for agent %d group: %d",
+            #             i, agent.group)
 
             # Build a KDTree from all agent locations
             if moved:
                 tree = KDTree(all_locations)
-                #print "KD-Tree rebuilt"
+                #logging.info("KD-Tree rebuilt")
             moved = False
 
             # Query the KDTree to find the k nearest neighbours.
@@ -155,14 +162,14 @@ class Population(object):
             k = self.n_neighbours + 1
             agent.neighbour_ids = tree.query(agent.location, k=k)[1][1:]
 
-            #print "Agent's neighbours:", agent.neighbour_ids, \
-            #    [self.agents[a].group for a in agent.neighbour_ids]
+            #logging.info("Agent's neighbours: %s", str(agent.neighbour_ids))
             self.count_like_neighbours(agent)
-            #print "Agent has %d like neighbours." % agent.like_neighbours
+            #logging.info("Agent has %d like neighbours.",
+            #             agent.like_neighbours)
 
             if not agent.happy():
 
-                #print "Agent not happy..."
+                #logging.info("Agent not happy...")
                 # Now rebuild the KDTree from all agent locations except
                 # the current agent's location (this makes hunting for
                 # a new location faster)
@@ -186,16 +193,16 @@ class Population(object):
                         if neighbour_id > i:
                             agent.neighbour_ids[j] += 1
 
-                    #print "Agent's neighbours:", agent.neighbour_ids, \
-                    #    [self.agents[a].group for a in agent.neighbour_ids]
+                    #logging.info("Agent's neighbours: %s",
+                    #             str(agent.neighbour_ids))
 
                     self.count_like_neighbours(agent)
 
-                    #print "Agent has", agent.like_neighbours, \
-                    #       "like neighbours."
+                    #logging.info("Agent has %d like neighbours.",
+                    #              agent.like_neighbours)
                     searches += 1
                     if searches > 50:
-                        #print "Gave up looking."
+                        #logging.info("Gave up looking.")
                         break
 
                 # Put the current agent's location back in the list
@@ -205,9 +212,7 @@ class Population(object):
 
             if moved == True:
                 agent.show()
-                print "%02d:%02d:%02d Agent %d moved." % (t.hour, t.minute,
-                                                          t.second, i)
-            #raw_input("Press enter to contine...")
+                logging.info("Agent %d moved.", i)
 
         return any_moved
 
@@ -230,12 +235,11 @@ class Population(object):
 
 def main():
 
-    print "\n------- Schelling Segregation Model Simulation -------\n"
+    logging.info("\n\n------- Schelling Segregation Model Simulation -------\n")
 
     # Get current time
     start_time = datetime.now()
     hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
-    print "Date: %02d/%02d/%4d" % (start_time.day, start_time.month, start_time.year)
 
     # Connect to LED display
     dis = display.Display1593()
@@ -252,58 +256,65 @@ def main():
     ]
 
     while True:
-        dis.clear()
 
-        print "Initializing population model..."
-        # Define population and model parameters
-        n_agents = display.leds.numCells - 400
+        logging.info("Initializing population model...")
 
-        # Randomly sort the colours
-        shuffle(cols)
-
+        # Randomly assign population and model parameters
+        # Number of population groups
         p = [0.5, 0.4, 0.1]
         n_groups = np.random.choice(range(2, 5), p=p)
+
+        # Number of neighbours in happiness calculation
+        n_neighbours = 9
+
+        # Happiness thresholds
+        thresholds = np.random.choice([0.25, 0.35, 0.5], size=n_groups)
+
+        # Number of agents
+        n_agents = display.leds.numCells - (100 + n_groups*100)
+
         x = [(np.random.rand() + 0.25) for i in range(n_groups)]
         t = sum(x)
         probs = [p/t for p in x]
 
-        thresholds = np.random.choice([0.25, 0.35, 0.5], size=n_groups)
-        n_neighbours = 9
+        # Randomly sort the colours
+        shuffle(cols)
 
         population = Population(dis, n_agents, probs, thresholds,
                                 n_neighbours=n_neighbours,
                                 cols=cols[0:n_groups])
 
-        print n_agents, " agents initialized."
-        print population.n_groups, "groups"
-        print "Distribution:", population.probs
-        print "Thresholds:", thresholds
-        print "Number of nearest neighbours:", n_neighbours
+        logging.info("%d agents initialized.", n_agents)
+        logging.info("%d population groups.", population.n_groups)
+        logging.info("Distribution: %s", str(population.probs))
+        logging.info("Thresholds: %s", str(thresholds.tolist()))
+        logging.info("Number of nearest neighbours: %d", n_neighbours)
 
-        print "Displaying initial population..."
+        logging.info("Displaying initial population...")
+        dis.clear()
         population.show()
 
-        print "Model updating started..."
-
+        logging.info("Model updating started...")
         while population.update_agents():
             pass
 
-        print "Stable population reached"
-        time.sleep(120)
+        logging.info("Stable population reached.")
+        d = 2
+        logging.info("Waiting %d mins...", d)
+        time.sleep(d*60)
 
-    print "Results"
-    print "   #:   id,  g,       x,       y, nn, neighbour_ids"
+    logging.info("Results")
+    logging.info("   #:   id,  g,       x,       y, nn, neighbour_ids")
     for i, agent in enumerate(population.agents):
-        print "%4d: %4d, %2d, %7.2f, %7.2f, %2d," % \
-            (
-                i,
-                agent.id,
-                agent.group,
-                agent.location[0],
-                agent.location[1],
-                agent.like_neighbours
-            ), \
-            agent.neighbour_ids
+        logging.info("%4d: %4d, %2d, %7.2f, %7.2f, %2d, %s",
+            i,
+            agent.id,
+            agent.group,
+            agent.location[0],
+            agent.location[1],
+            agent.like_neighbours,
+            str(agent.neighbour_ids)
+        )
 
 if __name__ == "__main__":
     main()
