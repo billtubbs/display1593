@@ -200,24 +200,46 @@ class Display1593(object):
 
             logging.info("%d leds set on Teensy %d", cnt[i], i)
 
-    def setAllLeds2(self, cols):
+    def setLeds(self, ledIDs, cols):
+        """setLeds(self, ledIDs, cols)
+        Set colours of a batch of LEDs.
+        Arguments
+        ---------
+        ledIDs  - list or tuple containing the LED ID numbers
+        cols    - list or tuple containing the LED colour
+                  intensities (r, g, b).
+        """
 
-        if len(cols) != leds.numCells:
-            raise Display1593Error("setAllLeds() requires a sequence of"
-                                   " %d colours." % leds.numCells)
+        if len(cols) != len(ledIDs):
+            raise Display1593Error("ledIDs and cols must be sequences"
+                                   " of equal length.")
+            return False
 
-        char_data = np.array(cols, dtype='int8').ravel() \
-                        .view('S{}'.format(cols.size))[0]
+        # prepare two lists to accumulate colour values destined
+        # for each controller
+        s = [list(), list()]
+        cnt = [0, 0]
 
-        mid_point = leds.numLeds[0]*3
-        self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
-        self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
+        for id, col in izip(ledIDs, cols):
+            controller = leds.ledIndex[id][0]
+            ledRef = leds.ledIndex[id][1]
+            s[controller].append(chr(ledRef >> 8))
+            s[controller].append(chr(ledRef % 256))
+            for c in range(3):
+                s[controller].append(chr(col[c]))
+            cnt[controller] += 1
+
+        for i in range(leds.numberOfControllers):
+            n = len(s[i])
+            if n>0:
+                self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
+                self.tys[i].serial.write("".join([item for item in s[i]]))
+
+            logging.info("%d leds set on Teensy %d", cnt[i], i)
 
     def setAllLeds(self, cols):
         """setAllLeds(self, cols)
-
         Set all LEDs to the specified sequence of colours.
-
         Args:
             cols: sequence of 1593 (r, g, b) values or an
                 array of values of shape (1593, 3).
@@ -234,6 +256,28 @@ class Display1593(object):
                         c[0], c[1], c[2]) for c in cols[start:end]])
             self.send_chars(controller, char_data)
             start = end
+
+    def setAllLeds2(self, cols):
+        """DO NOT USE - NOT WORKING
+        Set all LEDs to the specified sequence of colours.
+
+        Args:
+            cols: sequence of 1593 (r, g, b) values or an
+                array of values of shape (1593, 3).
+        """
+        # TODO: This is faster than setAllLeds but causes a communication
+        # breakdown with Teensy.  Then can't reconnect...
+
+        if len(cols) != leds.numCells:
+            raise Display1593Error("setAllLeds() requires a sequence of"
+                                   " %d colours." % leds.numCells)
+
+        char_data = np.array(cols, dtype='int8').ravel() \
+                        .view('S{}'.format(cols.size))[0]
+
+        mid_point = leds.numLeds[0]*3
+        self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
+        self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
 
     def send_chars(self, controller, char_data):
 

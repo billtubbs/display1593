@@ -3,10 +3,11 @@
 # Randomly displays stars and then they slowly
 # fade away...
 
-import display1593 as display
+import logging
 from datetime import datetime
 import numpy as np
-import logging
+
+import display1593 as display
 
 logging.basicConfig(
     level=logging.DEBUG,
