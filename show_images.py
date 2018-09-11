@@ -1,13 +1,21 @@
+#!/usr/bin/python
 # Python code for RaspberryPi to communicate with
 # Teensy driving the LED display
 #
 # See here:
 # http://blog.oscarliang.net/connect-raspberry-pi-and-arduino-usb-cable/
 
-import display1593 as display
+import logging
 from datetime import datetime
 import numpy as np
 from scipy import ndimage
+import display1593 as display
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # To identify new devices connected to Raspberry Pi USB ports
 # Use type lsusb into the shell
@@ -21,38 +29,36 @@ from scipy import ndimage
 
 
 bcycle = {
-    0: 120,
-    1: 120,
-    2: 120,
-    3: 120,
-    4: 120,
-    5: 120,
-    6: 120,
-    7: 100,
-    8: 50,
-    9: 25,
-    10: 18,
-    11: 16,
-    12: 16,
-    13: 16,
-    14: 16,
-    15: 16,
-    16: 18,
-    17: 25,
-    18: 50,
-    19: 100,
-    20: 120,
-    21: 120,
-    22: 120,
-    23: 120
+    0: 12,
+    1: 12,
+    2: 12,
+    3: 12,
+    4: 12,
+    5: 12,
+    6: 12,
+    7: 10,
+    8: 5,
+    9: 3,
+    10: 2,
+    11: 2,
+    12: 2,
+    13: 2,
+    14: 2,
+    15: 2,
+    16: 2,
+    17: 3,
+    18: 5,
+    19: 10,
+    20: 12,
+    21: 12,
+    22: 12,
+    23: 12
 }
-
-# --------------------- START OF MAIN FUNCTION ---------------------
 
 
 def main():
 
-    print "--------------------- show_images.py ---------------------"
+    logging.info("\n\n------------------- show_images.py -------------------\n")
 
     dis = display.Display1593()
     dis.connect()
@@ -61,9 +67,9 @@ def main():
 
     fnames = [
         "images/monalisa.png",
+        "images/einstein.jpeg",
+        "images/muhammedali.jpg",
         "images/bowie.jpg",
-        #"einstein.jpeg"
-        #"muhammedali.jpg",
         "images/spock.jpg",
         "images/hendrix.jpg"
     ]
@@ -71,21 +77,23 @@ def main():
     i = 0
     status = ""
     col = 0
+    prev_dimness = None
 
     while True:
 
         for f in fnames:
 
+            logging.info("Showing image %s", f.__repr__())
             # Get current time
             start_time = datetime.now()
             hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
 
             # Set display dimmer level
-            bness = bcycle[hr % 24]
+            dimness = bcycle[hr % 24]
+            if dimness != prev_dimness:
+                logging.info("Dimness adjusted: %d", dimness)
 
-            print "Hour", hr, "Brightness:", bness
-
-            dis.show_image(f)
+            dis.show_image(f, dimness=dimness)
 
             while (datetime.now() - start_time).total_seconds() < 60*10:
                 pass
