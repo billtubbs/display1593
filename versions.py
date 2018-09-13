@@ -40,3 +40,10 @@ except ImportError:
     print('keras: not installed')
 else:
     print('keras: %s' % keras.__version__)
+# pygame
+try:
+    import pygame
+except ImportError:
+    print('pygame: not installed')
+else:
+    print('pygame: %s' % pygame.__version__)
