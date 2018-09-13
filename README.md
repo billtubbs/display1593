@@ -37,9 +37,9 @@ Data on the LED co-ordinates, nearest neighbours etc. is currently stored in thi
 
 
 ## Current list of display projects in this repository:
-* clock.py - displays a round (analog) clock face
-* digclock.py - displays a digital clock face
-* shapes.py - displays random moving shapes of different colours
-* schelling.py - simulation of the Schelling segregation model
-* show_images.py - shows a series of recognisable images over time (e.g. Mona Lisa, David Bowie)
-* stars.py - simulates a changing starry sky at night
+* [clock.py](clock.py) - displays a round (analog) clock face
+* [digclock.py]() - displays a digital clock face
+* [shapes.py]() - displays random moving shapes of different colours
+* [schelling.py]() - simulation of the Schelling segregation model
+* [show_images.py]() - shows a series of recognisable images over time (e.g. Mona Lisa, David Bowie)
+* [stars.py]() - simulates a changing starry sky at night
