@@ -49,4 +49,4 @@ Data on the LED co-ordinates, nearest neighbours etc. is currently stored in thi
 
 I'm currently working on an emulator of the real LED display to aid in the development and testing of display algorithms and projects.
 
-* [display1593_em.py](display1593.py)
+* [display1593_em.py](display1593_em.py)
