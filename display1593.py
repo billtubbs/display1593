@@ -30,7 +30,7 @@ from scipy import misc
 from itertools import izip
 
 logging.basicConfig(
-	filename='logfile.txt',
+    filename='logfile.txt',
     level=logging.DEBUG,
     format='%(asctime)s %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -73,6 +73,7 @@ class Display1593Error(Exception):
 
 
 class Teensy(object):
+    """Teensy micro-controller connection object class."""
 
     def __init__(self, address, baud=38400):
 
@@ -122,8 +123,8 @@ class Display1593(object):
         logging.info("Finding Teensies...")
 
         tty_files = []
-        for file in os.listdir('/dev'):
-            if file.startswith('ttyACM'):
+        for filename in os.listdir('/dev'):
+            if filename.startswith('ttyACM'):
                 tty_files.append(file)
 
         logging.info("Trying to connect to Teensies...")
@@ -155,23 +156,21 @@ class Display1593(object):
         """Set colours of an individual LED."""
 
         ledRef = leds.ledIndex[led]
-        id = ledRef[1]
-        self.tys[ledRef[0]].serial.write('S' + chr(id >> 8) + chr(id % 256) \
+        i = ledRef[1]
+        self.tys[ledRef[0]].serial.write('S' + chr(i >> 8) + chr(i % 256) \
             + chr(col[0]) + chr(col[1]) + chr(col[2]) +'\n')
         #logging.info("Led %d set to 0x%2x%2x%2x [t%d: %d]", led, col[0],
-        #             col[1], col[2], ledRef[0], id)
+        #             col[1], col[2], ledRef[0], i)
 
     def setLeds(self, ledIDs, cols):
         """setLeds(self, ledIDs, cols)
 
         Set colours of a batch of LEDs.
 
-        Arguments
-        ---------
-
-        ledIDs  - list or tuple containing the LED ID numbers
-        cols    - list or tuple containing the LED colour
-                  intensities (r, g, b).
+        Arg:
+            ledIDs: list or tuple containing the LED ID numbers
+            cols: list or tuple containing the LED colour
+                intensities (r, g, b).
         """
 
         if len(cols) != len(ledIDs):
@@ -184,18 +183,18 @@ class Display1593(object):
         s = [list(), list()]
         cnt = [0, 0]
 
-        for id, col in izip(ledIDs, cols):
-            controller = leds.ledIndex[id][0]
-            ledRef = leds.ledIndex[id][1]
-            s[controller].append(chr(ledRef >> 8))
-            s[controller].append(chr(ledRef % 256))
+        for i, col in izip(ledIDs, cols):
+            controller = leds.ledIndex[i][0]
+            led_ref = leds.ledIndex[i][1]
+            s[controller].append(chr(led_ref >> 8))
+            s[controller].append(chr(led_ref % 256))
             for c in range(3):
                 s[controller].append(chr(col[c]))
             cnt[controller] += 1
 
         for i in range(leds.numberOfControllers):
             n = len(s[i])
-            if n>0:
+            if n > 0:
                 self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
                 self.tys[i].serial.write("".join([item for item in s[i]]))
 
@@ -203,27 +202,27 @@ class Display1593(object):
 
     def setLeds(self, ledIDs, cols):
         """setLeds(self, ledIDs, cols)
+
         Set colours of a batch of LEDs.
-        Arguments
-        ---------
-        ledIDs  - list or tuple containing the LED ID numbers
-        cols    - list or tuple containing the LED colour
-                  intensities (r, g, b).
+
+        Arg:
+            ledIDs: list or tuple containing the LED ID numbers
+            cols: list or tuple containing the LED colour
+                intensities (r, g, b).
         """
 
         if len(cols) != len(ledIDs):
             raise Display1593Error("ledIDs and cols must be sequences"
                                    " of equal length.")
-            return False
 
         # prepare two lists to accumulate colour values destined
         # for each controller
         s = [list(), list()]
         cnt = [0, 0]
 
-        for id, col in izip(ledIDs, cols):
-            controller = leds.ledIndex[id][0]
-            ledRef = leds.ledIndex[id][1]
+        for i, col in izip(ledIDs, cols):
+            controller = leds.ledIndex[i][0]
+            ledRef = leds.ledIndex[i][1]
             s[controller].append(chr(ledRef >> 8))
             s[controller].append(chr(ledRef % 256))
             for c in range(3):
@@ -253,7 +252,7 @@ class Display1593(object):
         start = 0
         for i, controller in enumerate(self.tys):
             end = start + leds.numLeds[i]
-            char_data = 'A' + "".join(["{:c}{:c}{:c}".format( \
+            char_data = 'A' + "".join(["{:c}{:c}{:c}".format(
                         c[0], c[1], c[2]) for c in cols[start:end]])
             self.send_chars(controller, char_data)
             start = end
@@ -274,19 +273,20 @@ class Display1593(object):
                                    " %d colours." % leds.numCells)
 
         char_data = np.array(cols, dtype='int8').ravel() \
-                        .view('S{}'.format(cols.size))[0]
+                      .view('S{}'.format(cols.size))[0]
 
         mid_point = leds.numLeds[0]*3
         self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
         self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
 
-    def send_chars(self, controller, char_data):
+    @staticmethod
+    def send_chars(controller, char_data):
 
         n = controller.serial.write(char_data)
 
         if n != len(char_data):
             raise Display1593Error(
-                  "Error sending data to Teensy. " \
+                  "Error sending data to Teensy. "
                   "{} bytes sent out of {}.".format(n, len(char_data))
                   )
 
@@ -314,12 +314,12 @@ class Display1593(object):
 
         Get the colour of an individual LED."""
 
-        ledRef = leds.ledIndex[led]
-        controller = self.tys[ledRef[0]]
-        id = ledRef[1]
-        controller.serial.write('G' + chr(id >> 8) + chr(id % 256))
+        led_ref = leds.ledIndex[led]
+        controller = self.tys[led_ref[0]]
+        i = led_ref[1]
+        controller.serial.write('G' + chr(i >> 8) + chr(i % 256))
         col = controller.serial.read(size=3)
-        return (ord(col[0]), ord(col[1]), ord(col[2]))
+        return ord(col[0]), ord(col[1]), ord(col[2])
 
     def prepare_image(self, image):
         """Adjusts the size of the ndimage stored in image and
@@ -330,10 +330,10 @@ class Display1593(object):
 
         # Find out how many layers the image has
         image_shape = image.shape[:2]
-        if len(image.shape)>2:
-            imageCols = image.shape[2]
+        if len(image.shape) > 2:
+            image_cols = image.shape[2]
         else:
-            imageCols = 1
+            image_cols = 1
 
         data_type = image.dtype
 
@@ -341,25 +341,24 @@ class Display1593(object):
         # assume first three are red, green, blue and
         # ignore the rest
 
-        if imageCols > 3:
-            image = image[:,:,:3]
-            imageCols = image.shape[2]
+        if image_cols > 3:
+            image = image[:, :, :3]
+            image_cols = image.shape[2]
             #logging.info("Image reduced to %d layers (R, G, B)", imageCols)
 
         # Determine smallest dimension (x or y)
-        imageSize = min(image_shape)
+        image_size = min(image_shape)
 
         if not image_shape[0] == image_shape[1]:
-            if image_shape[0] > imageSize:
+            if image_shape[0] > image_size:
                 #logging.info("Image is not square. Y-axis will be cropped.")
-                y = (image_shape[0] - imageSize)/2
-                image = image[:][y:y+imageSize]
-            elif image_shape[1] > imageSize:
+                y = (image_shape[0] - image_size)/2
+                image = image[:][y:y+image_size]
+            elif image_shape[1] > image_size:
                 #logging.info("Image is not square. X-axis will be cropped.")
-                x = (image_shape[1] - imageSize)/2
-                image = image[:, x:x+imageSize, :]
+                x = (image_shape[1] - image_size)/2
+                image = image[:, x:x+image_size, :]
 
-            imageShape = image.shape[:2]
             #logging.info("Cropped image size: %dx%d", image_shape[0],
             #             image_shape[1])
 
@@ -368,20 +367,20 @@ class Display1593(object):
 
         cols = ['red', 'green', 'blue']
 
-        if imageCols > 1:
-            maxInt = np.zeros((imageCols), dtype = 'uint8')
-            for i in range(imageCols):
+        if image_cols > 1:
+            max_int = np.zeros((image_cols), dtype ='uint8')
+            for i in range(image_cols):
                 selCol = np.array([i], dtype=np.intp)
                 colMin = image[:, :, selCol].min()
                 colMax = image[:, :, selCol].max()
                 #logging.info("Colour %d range: %d to %d", i, colMin, colMax)
-                maxInt[i] = max(255,colMax)
+                max_int[i] = max(255, colMax)
         else:
             logging.info("This is a black and white image.")
             logging.info("Intensity range: %d to %d", image.min(), image.max())
             logging.info("Specify RGB intensities for final image (0-31):")
 
-            maxInt = np.zeros((3), dtype = 'uint8')
+            max_int = np.zeros((3), dtype ='uint8')
             for i, c in enumerate(cols):
                 while True:
                     s = raw_input(c + ": ")
@@ -390,7 +389,7 @@ class Display1593(object):
                     except:
                         print("Enter a number between 0 and 255")
                         continue
-                    maxInt[i] = f
+                    max_int[i] = f
                     break
         # Re-size image to required pixel size for super-sampling
         # algorithm
@@ -437,7 +436,8 @@ class Display1593(object):
 
         logging.info("Image saved to file", filename)
 
-    def image_snapshot(self, image, point, size):
+    @staticmethod
+    def image_snapshot(image, point, size):
         x = point[0]
         y = point[1]
         width = size[0]
