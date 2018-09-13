@@ -21,15 +21,15 @@ numberOfStrips = 8
 maxLedsPerStrip = 100
 
 ledsPerStrip = (
-    (100, 100, 98, 100, 100, 100, 100, 100), \
-    (99, 99, 99, 100, 100, 100, 100, 98) \
+    (100, 100, 98, 100, 100, 100, 100, 100),
+    (99, 99, 99, 100, 100, 100, 100, 98)
 )
 
 numLeds = (sum(ledsPerStrip[0]) , sum(ledsPerStrip[1]))
 
 firstLedOfStrip = (
-    0, 100, 200, 298, 398, 498, 598, 698, \
-    798, 897, 996, 1095, 1195, 1295, 1395, 1495, 1593 \
+    0, 100, 200, 298, 398, 498, 598, 698,
+    798, 897, 996, 1095, 1195, 1295, 1395, 1495, 1593
 )
 
 
@@ -50,13 +50,13 @@ def build_lookup_table():
 
     for i in range(1593):
         d.append((teensy, strip*maxLedsPerStrip + pos))
-        pos = pos + 1
+        pos += 1
         if pos == ledsPerStrip[teensy][strip]:
             pos = 0
-            strip = strip + 1
+            strip += 1
             if strip == numberOfStrips:
                 strip = 0
-                teensy = teensy + 1
+                teensy += 1
 
     return d
 
