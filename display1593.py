@@ -125,7 +125,7 @@ class Display1593(object):
         tty_files = []
         for filename in os.listdir('/dev'):
             if filename.startswith('ttyACM'):
-                tty_files.append(file)
+                tty_files.append(filename)
 
         logging.info("Trying to connect to Teensies...")
 

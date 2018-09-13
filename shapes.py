@@ -219,14 +219,14 @@ class RandomShape(Shape):
         sizes = [s*size/5 for s in (a, b, c)]
 
         # Position object somewhere on boundary:
-        r = [random.randint(0, 1), random.random()]
-        random.shuffle(r)
-        x = int(3*width*r[0]) - width
-        y = int(3*height*r[1]) - height
+        #r = [random.randint(0, 1), random.random()]
+        #random.shuffle(r)
+        #x = int(3*width*r[0]) - width
+        #y = int(3*height*r[1]) - height
 
         # Position objects randomly across available space
-        #x = width*random.uniform(-1.0, 2.0)
-        #y = height*random.uniform(-1.0, 2.0)
+        x = width*random.uniform(-1.0, 2.0)
+        y = height*random.uniform(-1.0, 2.0)
 
         if stype == "strip":
             if x in (-width, width*2):
