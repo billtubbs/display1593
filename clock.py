@@ -20,11 +20,20 @@ Note, clock.py requires the following components:
 """
 
 
-from PIL import Image, ImageDraw
-import numpy as np
+import logging
 import sys
 from datetime import datetime
+from PIL import Image, ImageDraw
+import numpy as np
 import display1593 as display
+
+logging.basicConfig(
+	filename='logfile.txt',
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 
 # For python 2 compatibility:
 try:
@@ -38,7 +47,7 @@ r, g, b = 200, 200, 160
 
 blk = np.array((0, 0, 0))
 red = np.array((r, 0, 0))
-grn = np.array((0, g, 0)) 
+grn = np.array((0, g, 0))
 blu = np.array((0, 0, b))
 white = np.array((r, g, b))
 
@@ -100,8 +109,8 @@ def clock_image(time):
 def main(argv):
     """Demonstration of how to use this module."""
 
-    print "\n------------- Analog Clock Display -------------\n"
-    print "Displays current time as an analog clock face."
+    logging.info("\n\n------------- Analog Clock Display -------------\n")
+    logging.info("Displays current time as an analog clock face.")
 
     dis = display.Display1593()
     dis.connect()
@@ -111,7 +120,7 @@ def main(argv):
     t = datetime.now().time()
     hr, min = (t.hour, t.minute)
 
-    print "Displaying clock..."
+    logging.info("Displaying clock...")
 
     try:
         color = argv[0]
@@ -130,7 +139,7 @@ def main(argv):
     hr, min, s = t.hour, t.minute, t.second
 
     while True:
-        print "%02d:%02d" % (hr, min)
+        logging.info("%02d:%02d" % (hr, min))
 
         while t.minute == min:
             while datetime.now().time().second == s:

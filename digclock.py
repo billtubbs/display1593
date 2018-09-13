@@ -22,10 +22,20 @@ Note, digclock.py requires the following components:
 - display1593
 """
 
+import logging
 import pickle
 import sys
 from datetime import datetime
 import display1593 as display
+
+
+logging.basicConfig(
+	filename='logfile.txt',
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 
 # Load LED intensity data to display the shapes that represent
 # all the segments of each LCD digit (x4) plus the two dots
@@ -187,9 +197,9 @@ class DigitalClock(object):
 def main(argv):
     """Demonstration of how to use this module."""
 
-    print "\n------------- Digital Clock Display -------------\n"
-    print "Displays current time as a digital clock similar to an "
-    print "old LCD alarm clock."
+    logging.info("\n\n------------- Digital Clock Display -------------\n")
+    logging.info("Displays current time as a digital clock similar to an ")
+    logging.info("old LCD alarm clock.")
 
     # Get current time
     t = datetime.now()
@@ -197,7 +207,7 @@ def main(argv):
     d4, d3 = (hr / 10), (hr % 10)
     d2, d1 = (min / 10), (min % 10)
 
-    print "Displaying clock..."
+    logging.info("Displaying clock...")
 
     try:
         color = argv[0]
@@ -217,7 +227,7 @@ def main(argv):
     hr, min, s = t.hour, t.minute, t.second
 
     while True:
-        print "%02d:%02d" % (hr, min)
+        logging.info("%02d:%02d" % (hr, min))
 
         while t.minute == min:
             while datetime.now().time().second == s:
