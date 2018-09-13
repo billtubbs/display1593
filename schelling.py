@@ -103,6 +103,7 @@ class Population(object):
 
         self.display = dis
         self.n_agents = n
+        self.probs = probs
         self.n_groups = len(probs)
         if cols == None:
             colour_set = display.leds.colourArray8[1:(self.n_groups + 1)]
