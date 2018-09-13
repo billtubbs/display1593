@@ -39,7 +39,7 @@ logging.basicConfig(
 # Load irregular LED array data
 import ledArray_data_1593 as leds
 
-f = open('/home/pi/code/data/mask1593.pickle', 'r')
+f = open('data/mask1593.pickle', 'r')
 mask1593 = pickle.load(f)   # load object from file
 f.close()
 
