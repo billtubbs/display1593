@@ -69,7 +69,6 @@ def colour(value, brightness=1.0):
 
 brightness = 0.5
 colours = [colour(v, brightness) for v in colour_values]
-
 width, height = (256, 256)
 shape_types = ["circle", "square", "rectangle", "strip", "triangle"]
 
@@ -77,8 +76,15 @@ shape_types = ["circle", "square", "rectangle", "strip", "triangle"]
 class Shape(object):
     """Class to simulate a shape"""
 
+    next_id = 0
+
+    @classmethod
+    def update_next_id(cls):
+        cls.next_id += 1
+
     def __init__(self, stype, (x, y), sizes, colour, speed,
                  direction, rotation=0):
+
         self.stype = stype
         self.x = x
         self.y = y
@@ -87,9 +93,12 @@ class Shape(object):
         self.speed = speed
         self.direction = direction
         self.rotation = rotation
+        self.id = self.next_id
+        self.update_next_id()
 
         now = datetime.now()
-        logging.info("%s (%.0f, %.0f) created.", self.stype, self.x, self.y)
+        logging.info("%s %d (%.0f, %.0f) created.", self.stype, self.id,
+                     self.x, self.y)
 
     def display(self):
 
@@ -168,8 +177,19 @@ class Shape(object):
         if self.stype == "triangle":
             self.direction += self.rotation
 
+    def check_in_bounds(self):
+        """Return True if shape is within the bounds:
+        (-width <= self.x < 2*width) and (-height <= self.y
+        < 2*height).
+        """
+        return ((-width <= self.x < 2*width) and
+                (-height <= self.y < 2*height))
+
     def __repr__(self):
-        return "Shape({}, ({}, {}), ({}, {}), {}, {}, {})".format(self.stype, self.x, self.y, self.sizes[0], self.sizes[1], self.colour, self.speed, self.direction)
+        return "Shape({}, ({}, {}), ({}, {}), {}, {}, {})".format(
+                    self.stype, self.x, self.y, self.sizes[0],
+                    self.sizes[1], self.colour, self.speed,
+                    self.direction)
 
 
 class RandomShape(Shape):
@@ -199,14 +219,14 @@ class RandomShape(Shape):
         sizes = [s*size/5 for s in (a, b, c)]
 
         # Position object somewhere on boundary:
-        #r = [random.randint(0, 1), random.random()]
-        #random.shuffle(r)
-        #self.x = int(3*width*r[0]) - width
-        #self.y = int(3*height*r[1]) - height
+        r = [random.randint(0, 1), random.random()]
+        random.shuffle(r)
+        x = int(3*width*r[0]) - width
+        y = int(3*height*r[1]) - height
 
         # Position objects randomly across available space
-        x = width*random.uniform(-1.0, 2.0)
-        y = height*random.uniform(-1.0, 2.0)
+        #x = width*random.uniform(-1.0, 2.0)
+        #y = height*random.uniform(-1.0, 2.0)
 
         if stype == "strip":
             if x in (-width, width*2):
@@ -233,16 +253,9 @@ class RandomShape(Shape):
         return (stype, (x, y), sizes, colour, speed, direction, rotation)
 
 
-    def check_bounds(self):
-        if (self.x < -width or self.x > 2*width or
-            self.y < -height or self.y > 2*height):
-             logging.info("%s (%.0f, %.0f) removed.", self.stype, self.x,
-                          self.y)
-             self.random_init()
-
-
 logging.info("\n\n-------------- shapes.py --------------\n")
 logging.info("Display slowly moving random shapes.")
+logging.info("Screen brightness: %f", brightness)
 
 dis = display.Display1593()
 dis.connect()
@@ -254,12 +267,13 @@ dis.clear()
 #pygame.display.set_caption('Shapes')
 
 # Use this if you do not want to have a visible window
+logging.info("Starting pygame...")
 screen = pygame.Surface((width, height))
 clock = pygame.time.Clock()
 
 number_of_shapes = 10
 my_shapes = []
-
+logging.info("Initializing %d shapes...", number_of_shapes)
 for n in range(number_of_shapes):
     my_shapes.append(RandomShape())
 
@@ -281,7 +295,12 @@ while running:
     # Process and display particles
     for i, shape in enumerate(my_shapes):
         shape.move()
-        shape.check_bounds()
+        if shape.check_in_bounds() is not True:
+            logging.info("%s %d (%.0f, %.0f) out of bounds.",
+                         shape.stype, shape.id, shape.x, shape.y)
+            # Create new shape
+            my_shapes[i] = RandomShape()
+            shape = my_shapes[i]
         shape.display()
 
     # Update display screen
