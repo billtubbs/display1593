@@ -11,7 +11,7 @@ time as follows:
 
 $ python shapes.py
 
-Note, shapes.py requires the following components:
+Note, shapes.py requires the following modules:
 - display1593
 
 Pygame code is based on a tutorial from
@@ -26,7 +26,9 @@ import random
 import math
 from datetime import datetime
 
+
 logging.basicConfig(
+	filename='logfile.txt',
     level=logging.DEBUG,
     format='%(asctime)s %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -72,12 +74,12 @@ width, height = (256, 256)
 shape_types = ["circle", "square", "rectangle", "strip", "triangle"]
 
 
-class Shape():
+class Shape(object):
     """Class to simulate a shape"""
 
-    def __init__(self, type, (x, y), size, colour, speed,
+    def __init__(self, stype, (x, y), sizes, colour, speed,
                  direction, rotation=0):
-        self.type = type
+        self.stype = stype
         self.x = x
         self.y = y
         self.sizes = sizes
@@ -86,9 +88,12 @@ class Shape():
         self.direction = direction
         self.rotation = rotation
 
+        now = datetime.now()
+        logging.info("%s (%.0f, %.0f) created.", self.stype, self.x, self.y)
+
     def display(self):
 
-        if self.type == "circle":
+        if self.stype == "circle":
             # gfxdraw.aacircle(surface, x, y, r, color) -> None
             r = self.sizes[0]/2
             pygame.gfxdraw.aacircle(screen,
@@ -96,21 +101,21 @@ class Shape():
             pygame.gfxdraw.filled_circle(screen,
                 int(self.x - r), int(self.y - r), int(r), self.colour)
 
-        elif self.type == "square":
+        elif self.stype == "square":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             r = self.sizes[0]/2
             pygame.draw.rect(screen,
                 self.colour, (int(self.x - r), int(self.y - r),
                 self.sizes[0], self.sizes[0]), 0)
 
-        elif self.type == "rectangle":
+        elif self.stype == "rectangle":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             w, h = self.sizes[0]/2, self.sizes[1]/2
             pygame.draw.rect(screen,
                 self.colour, (int(self.x - w), int(self.y - h),
                 self.sizes[0], self.sizes[1]), 0)
 
-        elif self.type == "strip":
+        elif self.stype == "strip":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             if self.sizes[0] == 0:
                 pygame.draw.rect(screen, self.colour, (-width, int(self.y),
@@ -119,8 +124,10 @@ class Shape():
                 pygame.draw.rect(screen, self.colour, (int(self.x), -height,
                              self.sizes[0], height*3), 0)
 
-        elif self.type == "triangle":
-            # gfxdraw.filled_trigon(surface, x1, y1, x2, y2, x3, y3, color) -> None
+        elif self.stype == "triangle":
+            # gfxdraw.filled_trigon(surface, x1, y1, x2, y2, x3, y3,
+            #                       color) -> None
+
             a, b, c = self.sizes[0:3]
 
             tb = math.acos((a*a + c*c - b*b)/(2*a*c))
@@ -150,7 +157,7 @@ class Shape():
                                          self.colour)
 
     def move(self):
-        if self.type == 'strip':
+        if self.stype == 'strip':
             if self.sizes[0] == 0:
                 self.y -= self.speed
             elif self.sizes[1] == 0:
@@ -158,66 +165,78 @@ class Shape():
         else:
             self.x += math.sin(self.direction) * self.speed
             self.y -= math.cos(self.direction) * self.speed
-        if self.type == "triangle":
+        if self.stype == "triangle":
             self.direction += self.rotation
 
     def __repr__(self):
-        return "Shape({}, ({}, {}), ({}, {}), {}, {}, {})".format(self.type, self.x, self.y, self.sizes[0], self.sizes[1], self.colour, self.speed, self.direction)
+        return "Shape({}, ({}, {}), ({}, {}), {}, {}, {})".format(self.stype, self.x, self.y, self.sizes[0], self.sizes[1], self.colour, self.speed, self.direction)
+
 
 class RandomShape(Shape):
     """Class to simulate a random shape"""
 
     def __init__(self):
-        self.random_init()
 
-    def random_init(self):
+        params = self.random_init_params()
+        stype, (x, y), sizes, colour, speed, direction, rotation = params
 
-        self.type = random.choice(shape_types)
+        # Python 2 version:
+        super(self.__class__, self).__init__(stype, (x, y), sizes, colour,
+                                             speed, direction, rotation)
+
+        # Python 3 version:
+        #super().__init__(stype, (x, y), size, colour, speed, direction,
+        #                 rotation)
+
+    def random_init_params(self):
+
+        #probs = [0.2, 0.2, 0.2, 0.3, 0.1]
+        stype = random.choice(shape_types + shape_types[:-1]) # less triangles
 
         a, b = (random.randint(2, 5), random.randint(2, 5))
         c = random.randint(abs(b - a) + 1, a + b - 1)
         size = random.uniform(0.2, 1.2)*math.sqrt(width*height)
-        self.sizes = [s*size/5 for s in (a, b, c)]
+        sizes = [s*size/5 for s in (a, b, c)]
 
         # Position object somewhere on boundary:
-        r = [random.randint(0, 1), random.random()]
-        random.shuffle(r)
-        self.x = int(3*width*r[0]) - width
-        self.y = int(3*height*r[1]) - height
+        #r = [random.randint(0, 1), random.random()]
+        #random.shuffle(r)
+        #self.x = int(3*width*r[0]) - width
+        #self.y = int(3*height*r[1]) - height
 
-        # Alternatively, position object near centre of screen
-        #self.x = width*random.uniform(0.2, 0.8)
-        #self.y = height*random.uniform(0.2, 0.8)
+        # Position objects randomly across available space
+        x = width*random.uniform(-1.0, 2.0)
+        y = height*random.uniform(-1.0, 2.0)
 
-        if self.type == "strip":
-            if self.x in (-width, width*2):
-                self.x = width*0.5
-                self.sizes[0] = 0
-                self.sizes[1] = random.randint(7, 16)
-                while 0 < self.y < height:
-                    self.y = int((random.random()*3 - 1)*height)
-            if self.y in (-height, height*2):
-                self.y = height*0.5
-                self.sizes[1] = 0
-                self.sizes[0] = random.randint(7, 16)
-                while 0 < self.x < width:
-                    self.x = int((random.random()*3 - 1)*width)
-        self.colour = random.choice(colours)
-        self.speed = random.uniform(0.1, 0.3333)
-        self.direction = random.uniform(0, math.pi*2)
+        if stype == "strip":
+            if x in (-width, width*2):
+                x = width*0.5
+                sizes[0] = 0
+                sizes[1] = random.randint(7, 16)
+                while 0 < y < height:
+                    y = int((random.random()*3 - 1)*height)
+            if y in (-height, height*2):
+                y = height*0.5
+                sizes[1] = 0
+                sizes[0] = random.randint(7, 16)
+                while 0 < x < width:
+                    x = int((random.random()*3 - 1)*width)
+        colour = random.choice(colours)
+        speed = random.uniform(0.05, 0.25)
+        direction = random.uniform(0, math.pi*2)
 
-        if self.type == "triangle":
-            self.rotation = random.uniform(-math.pi/720, math.pi/720)
+        if stype == "triangle":
+            rotation = random.uniform(-math.pi/720, math.pi/720)
         else:
-            self.rotation = 0
+            rotation = 0
 
-        now = datetime.now()
-        logging.info("%s (%.0f, %.0f) created.", self.type, self.x, self.y)
+        return (stype, (x, y), sizes, colour, speed, direction, rotation)
+
 
     def check_bounds(self):
         if (self.x < -width or self.x > 2*width or
             self.y < -height or self.y > 2*height):
-             logging.info("%s (%.0f, %.0f) removed.", self.type, self.x,
+             logging.info("%s (%.0f, %.0f) removed.", self.stype, self.x,
                           self.y)
              self.random_init()
 
