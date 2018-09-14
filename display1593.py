@@ -295,6 +295,7 @@ class Display1593(object):
 
         for controller in self.tys:
             controller.serial.write('CLS')
+        logging.info("Display cleared")
 
     def getBrightness(self):
         """getBrightness() -> int
