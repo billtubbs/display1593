@@ -84,7 +84,7 @@ class Display1593EmulatorWindow(object):
 
         self.screen.blit(self.background, (0, 0))
         pygame.event.get()
-        high_intensity = (16777216*self.led_state)**-0.25
+        high_intensity = ((16777216*self.led_state)**0.25).astype('B')
 
         for led_id in range(leds.numCells):
             col = high_intensity[led_id]
