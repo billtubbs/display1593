@@ -11,12 +11,17 @@
 # - display1593.py is the real display driver module.
 
 
+import os
 import pickle
 import logging
 import numpy as np
 from scipy import ndimage
 from scipy import misc
 from itertools import izip
+import pygame
+import pygame.gfxdraw
+from pygame import KEYDOWN, K_ESCAPE, QUIT
+
 
 logging.basicConfig(
     filename='logfile.txt',
@@ -45,8 +50,57 @@ class Display1593Error(Exception):
         return repr(self.value)
 
 
+class Display1593EmulatorWindow(object):
+
+    def __init__(self, led_state, size=512):
+
+        # Pygame parameters
+        self.led_state = led_state
+        self.hscale = float(size)/leds.width
+        self.vscale = float(size)/leds.height
+        self.led_positions = np.vstack((leds.centres_x*self.hscale,
+                                        leds.centres_y*self.vscale)).transpose().astype(int)
+        self.led_size = int(24*self.hscale)
+        self.background_colour = (0, 0, 0)
+
+        # Set up pygame window
+        pygame.init()
+        self.screen = pygame.display.set_mode((size, size))
+        pygame.display.set_caption('Irregular Led Display')
+
+        self.background = pygame.Surface(self.screen.get_size())
+        self.background = self.background.convert()
+        self.background.fill(self.background_colour)
+
+        # Blit everything to the screen
+        self.screen.blit(self.background, (0, 0))
+        pygame.display.flip()
+
+        self.update()
+        self.clock = pygame.time.Clock()
+
+
+    def update(self):
+
+        self.screen.blit(self.background, (0, 0))
+        pygame.event.get()
+        high_intensity = (16777216*self.led_state)**-0.25
+
+        for led_id in range(leds.numCells):
+            col = high_intensity[led_id]
+            #import pdb; pdb.set_trace()
+            pygame.draw.circle(self.screen, col, self.led_positions[led_id], self.led_size, 0)
+            #pygame.gfxdraw.filled_circle(self.screen, self.led_positions[led_id, 0],
+            #                             self.led_positions[led_id, 1], self.led_size, col)
+
+        # Display screen
+        pygame.display.flip()
+
+
 class Teensy(object):
     """Teensy micro-controller connection object class."""
+
+    teensy_names = ["Teensy1", "Teensy2"]
 
     def __init__(self, address, baud=38400):
 
@@ -66,7 +120,7 @@ class Teensy(object):
 
         result = False
         # Fake a connection
-        response = np.random.choice(["Teensy1", "Teensy2"])
+        response = self.teensy_names.pop()
 
         if response.startswith("Teensy"):
             self.name = response
@@ -84,16 +138,30 @@ class Teensy(object):
 class Display1593(object):
     """Irregular LED array driver class."""
 
-    def __init__(self):
+    def __init__(self, size=512):
+
         self.tys = None
+        self.size = size
+        self.state_filename = "led_state.pickle"
+
+        # Load LED current state from file
+        if self.state_filename in os.listdir("."):
+            with open(self.state_filename, 'rb') as f:
+                self.led_state = pickle.load(f)   # load object from file
+            assert self.led_state.dtype == 'B'
+        else:
+            self.led_state = np.zeros((1593, 3), dtype='B')
+
+        self.window = Display1593EmulatorWindow(self.led_state, self.size)
 
     def connect(self, addresses=addresses):
 
         logging.info("Finding Teensies...")
+        find_these = [address.split('/')[-1] for address in addresses]
 
         tty_files = []
         # Make it look like the right Teensies were found!
-        for filename in [address.split('/')[-1] for address in addresses]:
+        for filename in find_these:
             if filename.startswith('ttyACM'):
                 tty_files.append(filename)
 
@@ -125,50 +193,10 @@ class Display1593(object):
     def setLed(self, led, col):
         """Set colours of an individual LED."""
 
-        ledRef = leds.ledIndex[led]
-        i = ledRef[1]
-        self.tys[ledRef[0]].serial.write('S' + chr(i >> 8) + chr(i % 256) \
-            + chr(col[0]) + chr(col[1]) + chr(col[2]) +'\n')
-        #logging.info("Led %d set to 0x%2x%2x%2x [t%d: %d]", led, col[0],
-        #             col[1], col[2], ledRef[0], i)
+        self.led_state[led] = col
+        self.window.update()
 
-    def setLeds(self, ledIDs, cols):
-        """setLeds(self, ledIDs, cols)
-
-        Set colours of a batch of LEDs.
-
-        Arg:
-            ledIDs: list or tuple containing the LED ID numbers
-            cols: list or tuple containing the LED colour
-                intensities (r, g, b).
-        """
-
-        if len(cols) != len(ledIDs):
-            raise Display1593Error("ledIDs and cols must be sequences"
-                                   " of equal length.")
-            return False
-
-        # prepare two lists to accumulate colour values destined
-        # for each controller
-        s = [list(), list()]
-        cnt = [0, 0]
-
-        for i, col in izip(ledIDs, cols):
-            controller = leds.ledIndex[i][0]
-            led_ref = leds.ledIndex[i][1]
-            s[controller].append(chr(led_ref >> 8))
-            s[controller].append(chr(led_ref % 256))
-            for c in range(3):
-                s[controller].append(chr(col[c]))
-            cnt[controller] += 1
-
-        for i in range(leds.numberOfControllers):
-            n = len(s[i])
-            if n > 0:
-                self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
-                self.tys[i].serial.write("".join([item for item in s[i]]))
-
-            logging.info("%d leds set on Teensy %d", cnt[i], i)
+        #logging.info("Led %d set to 0x%2x%2x%2x", led, col[0], col[1], col[2])
 
     def setLeds(self, ledIDs, cols):
         """setLeds(self, ledIDs, cols)
@@ -185,27 +213,10 @@ class Display1593(object):
             raise Display1593Error("ledIDs and cols must be sequences"
                                    " of equal length.")
 
-        # prepare two lists to accumulate colour values destined
-        # for each controller
-        s = [list(), list()]
-        cnt = [0, 0]
+        self.led_state[ledIDs] = cols
+        self.window.update()
 
-        for i, col in izip(ledIDs, cols):
-            controller = leds.ledIndex[i][0]
-            ledRef = leds.ledIndex[i][1]
-            s[controller].append(chr(ledRef >> 8))
-            s[controller].append(chr(ledRef % 256))
-            for c in range(3):
-                s[controller].append(chr(col[c]))
-            cnt[controller] += 1
-
-        for i in range(leds.numberOfControllers):
-            n = len(s[i])
-            if n>0:
-                self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
-                self.tys[i].serial.write("".join([item for item in s[i]]))
-
-            logging.info("%d leds set on Teensy %d", cnt[i], i)
+        #logging.info("%d leds set", len(ledIDs))
 
     def setAllLeds(self, cols):
         """setAllLeds(self, cols)
@@ -219,35 +230,10 @@ class Display1593(object):
             raise Display1593Error("setAllLeds() requires a sequence of"
                                    " %d colours." % leds.numCells)
 
-        start = 0
-        for i, controller in enumerate(self.tys):
-            end = start + leds.numLeds[i]
-            char_data = 'A' + "".join(["{:c}{:c}{:c}".format(
-                        c[0], c[1], c[2]) for c in cols[start:end]])
-            self.send_chars(controller, char_data)
-            start = end
+        self.led_state[:] = cols
+        self.window.update()
 
-    def setAllLeds2(self, cols):
-        """DO NOT USE - NOT WORKING
-        Set all LEDs to the specified sequence of colours.
-
-        Args:
-            cols: sequence of 1593 (r, g, b) values or an
-                array of values of shape (1593, 3).
-        """
-        # TODO: This is faster than setAllLeds but causes a communication
-        # breakdown with Teensy.  Then can't reconnect...
-
-        if len(cols) != leds.numCells:
-            raise Display1593Error("setAllLeds() requires a sequence of"
-                                   " %d colours." % leds.numCells)
-
-        char_data = np.array(cols, dtype='int8').ravel() \
-                      .view('S{}'.format(cols.size))[0]
-
-        mid_point = leds.numLeds[0]*3
-        self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
-        self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
+        #logging.info("All leds set")
 
     @staticmethod
     def send_chars(controller, char_data):
@@ -263,8 +249,9 @@ class Display1593(object):
     def clear(self):
         """Set all LEDs to black (0, 0, 0)."""
 
-        for controller in self.tys:
-            controller.serial.write('CLS')
+        self.led_state[:] = 0
+        self.window.update()
+        #logging.info("Display cleared")
 
     def getBrightness(self):
         """getBrightness() -> int
@@ -415,7 +402,94 @@ class Display1593(object):
         height = size[1]
         return image[y-height/2:y+height/2, x-width/2:x+width/2, :]
 
+    def save_state(self):
+        """Save led state"""
+
+        with open(self.state_filename, 'wb') as f:
+            pickle.dump(self.led_state, f)
+        logging.info("Led state saved.")
+
     def __repr__(self):
 
         return "Display1593()"
 
+
+class TestResults(object):
+
+    def __init__(self):
+
+        self.test_id = 0
+        self.test_results = {}
+        self.test_names = {}
+
+    def record(self, name, result, announce=True):
+        self.test_names[self.test_id] = name
+        self.test_results[self.test_id] = result
+        if announce:
+            logging.info("Test %d %s: %s", self.test_id, name, str(result))
+        self.test_id += 1
+
+
+def run_tests():
+
+    logging.info("\n\n ------------- display1593.py -------------")
+    logging.info("Running tests of functions...")
+
+    test_results = TestResults()
+
+    dis = Display1593()
+    test_results.record("Display1593 initialized", True)
+
+    dis.connect()
+    test_results.record("Connection to display", True)
+
+    dis.clear()
+    test_results.record("Clear display", True)
+
+    for i in range(25):
+        #pygame.event.get()
+        dis.setLed(i, tuple(np.random.randint(0, 128, size=3)))
+        dis.window.clock.tick(30)
+
+    test_results.record("setLed()", True)
+    raw_input("Press return to quit.")
+
+    for i in range(5):
+        #pygame.event.get()
+        length = np.random.randint(0, 50)
+        start = np.random.randint(0, 1593-length)
+        ledIDs = list(range(start, start + length))
+        col = np.random.randint(0, 128, size=3)
+        cols = np.ones((length, 3))*col
+        dis.setLeds(ledIDs, cols)
+        dis.window.clock.tick(30)
+
+    test_results.record("setLeds()", True)
+    raw_input("Press return to quit.")
+
+    for i in range(5):
+        #pygame.event.get()
+        length = leds.numCells
+        ledIDs = list(range(length))
+        col = np.random.randint(0, 128, size=3)
+        cols = np.ones((length, 3))*col
+        dis.setAllLeds(cols)
+        dis.window.clock.tick(30)
+
+    test_results.record("setAllLeds()", True)
+    raw_input("Press return to quit.")
+
+    dis.show_image("images/monalisa.png")
+    test_results.record("show_image()", True)
+
+    print("Testing complete.")
+    raw_input("Press return to quit.")
+
+    dis.save_state()
+
+
+if __name__ == "__main__":
+
+    run_tests()
+
+    logging.info("Testing complete.")
