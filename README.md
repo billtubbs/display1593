@@ -16,7 +16,7 @@ This repository contains the code installed on the Raspberry Pi.  The code for t
 ## Display driver code
 
 The main code for connecting to the display and setting LED intensities is in this module:
-* [display1593.py](https://github.com/billtubbs/display1593/blob/master/display1593.py)
+* [display1593.py](display1593.py)
 
 Here is a simple example showing how to connect to the display:
 
@@ -37,9 +37,16 @@ Data on the LED co-ordinates, nearest neighbours etc. is currently stored in thi
 
 
 ## Current list of display projects in this repository:
-* clock.py - displays a round (analog) clock face
-* digclock.py - displays a digital clock face
-* shapes.py - displays random moving shapes of different colours
-* schelling.py - simulation of the Schelling segregation model
-* show_images.py - shows a series of recognisable images over time (e.g. Mona Lisa, David Bowie)
-* stars.py - simulates a changing starry sky at night
+* [clock.py](clock.py) - displays a round (analog) clock face
+* [digclock.py](digclock.py) - displays a digital clock face
+* [shapes.py](shapes.py) - displays random moving shapes of different colours
+* [schelling.py](schelling.py) - simulation of the Schelling segregation model
+* [show_images.py](show_images.py) - shows a series of recognisable images over time (e.g. Mona Lisa, David Bowie)
+* [stars.py](stars.py) - simulates a changing starry sky at night
+
+
+## Current developments
+
+I'm currently working on an emulator of the real LED display to aid in the development and testing of display algorithms and projects.
+
+* [display1593_em.py](display1593_em.py)
