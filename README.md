@@ -39,6 +39,7 @@ Data on the LED co-ordinates, nearest neighbours etc. is currently stored in thi
 ## Current list of display projects in this repository:
 * [clock.py](clock.py) - displays a round (analog) clock face
 * [digclock.py](digclock.py) - displays a digital clock face
+* [lightlevels.py](lightlevels.py) - displays and logs light intensity levels using the built-in light sensor 
 * [shapes.py](shapes.py) - displays random moving shapes of different colours
 * [schelling.py](schelling.py) - simulation of the Schelling segregation model
 * [show_images.py](show_images.py) - shows a series of recognisable images over time (e.g. Mona Lisa, David Bowie)
