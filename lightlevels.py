@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""------------------- shapes.py -------------------
+"""------------------- lightlevels.py -------------------
 Python module to display brightness level
 according to photo resistor.
 
@@ -82,6 +82,7 @@ running = True
 
 # Output filename
 filename = "lightlevels.csv"
+logging.info("Readings will be appended to '%s'.", filename)
 
 # Use an exponentially-weighted moving average
 ewma = dis.getBrightness()
@@ -112,9 +113,6 @@ while running:
              width/history_length, 6),
             0
         )
-
-    # Update display screen
-    #pygame.display.flip()
 
     # Convert pygame screen to numpy array
     s = screen.get_buffer()
