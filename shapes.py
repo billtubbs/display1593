@@ -303,13 +303,12 @@ while running:
             shape = my_shapes[i]
         shape.display()
 
-    # Update display screen
-    #pygame.display.flip()
-
-    # Save image to disk
-    pygame.image.save(screen, "shapes.png")
+    # Convert pygame screen to numpy array
+    s = screen.get_buffer()
+    x = pygame.surfarray.pixels3d(screen).swapaxes(0, 1)
 
     # Tell display to show image
-    dis.show_image("shapes.png")
+    z = dis.convert_image(x)
+    dis.setAllLeds(z)
 
     clock.tick(0.5)
