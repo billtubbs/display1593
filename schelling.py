@@ -15,7 +15,6 @@ import logging
 import time
 import numpy as np
 from scipy.spatial import KDTree
-from itertools import izip
 from datetime import datetime
 from random import shuffle
 
