@@ -22,12 +22,10 @@
 import serial
 import time
 import os
-import pickle
 import logging
 import numpy as np
 from scipy import ndimage
 from scipy import misc
-from itertools import izip
 
 logging.basicConfig(
     filename='logfile.txt',
@@ -39,10 +37,8 @@ logging.basicConfig(
 # Load irregular LED array data
 import ledArray_data_1593 as leds
 
-f = open('data/mask1593.pickle', 'r')
-mask1593 = pickle.load(f)   # load object from file
-f.close()
-
+# load object from file
+mask1593 = np.load('data/mask1593.npy')
 
 # Connection details
 
@@ -183,7 +179,7 @@ class Display1593(object):
         s = [list(), list()]
         cnt = [0, 0]
 
-        for i, col in izip(ledIDs, cols):
+        for i, col in zip(ledIDs, cols):
             controller = leds.ledIndex[i][0]
             led_ref = leds.ledIndex[i][1]
             s[controller].append(chr(led_ref >> 8))
@@ -220,7 +216,7 @@ class Display1593(object):
         s = [list(), list()]
         cnt = [0, 0]
 
-        for i, col in izip(ledIDs, cols):
+        for i, col in zip(ledIDs, cols):
             controller = leds.ledIndex[i][0]
             ledRef = leds.ledIndex[i][1]
             s[controller].append(chr(ledRef >> 8))
