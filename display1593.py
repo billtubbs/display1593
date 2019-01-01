@@ -22,10 +22,14 @@
 import serial
 import time
 import os
+import pickle
 import logging
 import numpy as np
 from scipy import ndimage
 from scipy import misc
+
+# If using Python 2:
+#from itertools import izip
 
 logging.basicConfig(
     filename='logfile.txt',
@@ -37,8 +41,8 @@ logging.basicConfig(
 # Load irregular LED array data
 import ledArray_data_1593 as leds
 
-# load object from file
-mask1593 = np.load('data/mask1593.npy')
+with open('data/mask1593b.pickle', 'rb') as f:
+    mask1593 = pickle.load(f)   # load object from file
 
 # Connection details
 
@@ -85,7 +89,7 @@ class Teensy(object):
         #self.serial.open()
 
         # Request identification
-        self.serial.write('ID\n')
+        self.serial.write(b'ID\n')
 
         result = False
         try:
@@ -95,8 +99,8 @@ class Teensy(object):
             self.serial.close()
             return result
 
-        if response.startswith("Teensy"):
-            self.name = response
+        if response.startswith(b"Teensy"):
+            self.name = response.decode("utf-8")  # Convert from bytes
             logging.info("Connection to %s (%s) successful.",
                          self.address, response)
             result = True
@@ -153,48 +157,12 @@ class Display1593(object):
 
         ledRef = leds.ledIndex[led]
         i = ledRef[1]
-        self.tys[ledRef[0]].serial.write('S' + chr(i >> 8) + chr(i % 256) \
-            + chr(col[0]) + chr(col[1]) + chr(col[2]) +'\n')
+
+        # Send bytes b'S', LED #, col, b'\n'
+        data = bytes((83, i >> 8, i % 256, col[0], col[1], col[2], 10))
+        self.tys[ledRef[0]].serial.write(data)
         #logging.info("Led %d set to 0x%2x%2x%2x [t%d: %d]", led, col[0],
         #             col[1], col[2], ledRef[0], i)
-
-    def setLeds(self, ledIDs, cols):
-        """setLeds(self, ledIDs, cols)
-
-        Set colours of a batch of LEDs.
-
-        Arg:
-            ledIDs: list or tuple containing the LED ID numbers
-            cols: list or tuple containing the LED colour
-                intensities (r, g, b).
-        """
-
-        if len(cols) != len(ledIDs):
-            raise Display1593Error("ledIDs and cols must be sequences"
-                                   " of equal length.")
-            return False
-
-        # prepare two lists to accumulate colour values destined
-        # for each controller
-        s = [list(), list()]
-        cnt = [0, 0]
-
-        for i, col in zip(ledIDs, cols):
-            controller = leds.ledIndex[i][0]
-            led_ref = leds.ledIndex[i][1]
-            s[controller].append(chr(led_ref >> 8))
-            s[controller].append(chr(led_ref % 256))
-            for c in range(3):
-                s[controller].append(chr(col[c]))
-            cnt[controller] += 1
-
-        for i in range(leds.numberOfControllers):
-            n = len(s[i])
-            if n > 0:
-                self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
-                self.tys[i].serial.write("".join([item for item in s[i]]))
-
-            logging.info("%d leds set on Teensy %d", cnt[i], i)
 
     def setLeds(self, ledIDs, cols):
         """setLeds(self, ledIDs, cols)
@@ -219,17 +187,18 @@ class Display1593(object):
         for i, col in zip(ledIDs, cols):
             controller = leds.ledIndex[i][0]
             ledRef = leds.ledIndex[i][1]
-            s[controller].append(chr(ledRef >> 8))
-            s[controller].append(chr(ledRef % 256))
+            s[controller].append(ledRef >> 8)
+            s[controller].append(ledRef % 256)
             for c in range(3):
-                s[controller].append(chr(col[c]))
+                s[controller].append(col[c])
             cnt[controller] += 1
 
         for i in range(leds.numberOfControllers):
             n = len(s[i])
-            if n>0:
-                self.tys[i].serial.write('N' + chr(n >> 8) + chr(n % 256))
-                self.tys[i].serial.write("".join([item for item in s[i]]))
+            if n > 0:
+                # Send b'N' + LED # + colours
+                data = bytes([78, n >> 8, n % 256] + [item for item in s[i]])
+                self.tys[i].serial.write(data)
 
             logging.info("%d leds set on Teensy %d", cnt[i], i)
 
@@ -240,57 +209,35 @@ class Display1593(object):
             cols: sequence of 1593 (r, g, b) values or an
                 array of values of shape (1593, 3).
         """
+        # TODO: Still getting occasional data errors
+        # Try reducing baud rate maybe?
 
         if len(cols) != leds.numCells:
             raise Display1593Error("setAllLeds() requires a sequence of"
                                    " %d colours." % leds.numCells)
 
-        start = 0
-        for i, controller in enumerate(self.tys):
-            end = start + leds.numLeds[i]
-            char_data = 'A' + "".join(["{:c}{:c}{:c}".format(
-                        c[0], c[1], c[2]) for c in cols[start:end]])
-            self.send_chars(controller, char_data)
-            start = end
-
-    def setAllLeds2(self, cols):
-        """DO NOT USE - NOT WORKING
-        Set all LEDs to the specified sequence of colours.
-
-        Args:
-            cols: sequence of 1593 (r, g, b) values or an
-                array of values of shape (1593, 3).
-        """
-        # TODO: This is faster than setAllLeds but causes a communication
-        # breakdown with Teensy.  Then can't reconnect...
-
-        if len(cols) != leds.numCells:
-            raise Display1593Error("setAllLeds() requires a sequence of"
-                                   " %d colours." % leds.numCells)
-
-        char_data = np.array(cols, dtype='int8').ravel() \
-                      .view('S{}'.format(cols.size))[0]
+        data = np.array(cols, dtype='int8').tobytes()
 
         mid_point = leds.numLeds[0]*3
-        self.send_chars(self.tys[0], 'A{}'.format(char_data[0:mid_point]))
-        self.send_chars(self.tys[1], 'A{}'.format(char_data[mid_point:]))
+        self.send_bytes(self.tys[0], b'A' + data[0:mid_point])
+        self.send_bytes(self.tys[1], b'A' + data[mid_point:])
 
     @staticmethod
-    def send_chars(controller, char_data):
+    def send_bytes(controller, data):
 
-        n = controller.serial.write(char_data)
+        n = controller.serial.write(data)
 
-        if n != len(char_data):
+        if n != len(data):
             raise Display1593Error(
                   "Error sending data to Teensy. "
-                  "{} bytes sent out of {}.".format(n, len(char_data))
+                  "{} bytes sent out of {}.".format(n, len(data))
                   )
 
     def clear(self):
         """Set all LEDs to black (0, 0, 0)."""
 
         for controller in self.tys:
-            controller.serial.write('CLS')
+            controller.serial.write(b'CLS')
         logging.info("Display cleared")
 
     def getBrightness(self):
@@ -298,13 +245,14 @@ class Display1593(object):
 
         Gets and returns the analog reading from the
         photo-resistor connected to Teensy 1. This value
-        should be an integer in the range 0 to 1023."""
+        should be an integer in the range 0 to 1023.
+        """
 
         for controller in self.tys:
             if controller.name == 'Teensy1':
-                controller.serial.write('B')
+                controller.serial.write(b'B')
                 data = controller.serial.read(size=2)
-                return (ord(data[0]) << 8) + ord(data[1])
+                return int.from_bytes(data, 'big')
 
     def getColour(self, led):
         """getColour(led) -> (int, int, int)
@@ -314,9 +262,13 @@ class Display1593(object):
         led_ref = leds.ledIndex[led]
         controller = self.tys[led_ref[0]]
         i = led_ref[1]
-        controller.serial.write('G' + chr(i >> 8) + chr(i % 256))
+
+        # Send b'G' + LED #
+        data = b'G' + i.to_bytes(2, byteorder='big')
+        controller.serial.write(data)
         col = controller.serial.read(size=3)
-        return ord(col[0]), ord(col[1]), ord(col[2])
+
+        return tuple(col)
 
     def prepare_image(self, image):
         """Adjusts the size of the ndimage stored in image and
@@ -347,13 +299,15 @@ class Display1593(object):
         image_size = min(image_shape)
 
         if not image_shape[0] == image_shape[1]:
+
             if image_shape[0] > image_size:
                 #logging.info("Image is not square. Y-axis will be cropped.")
-                y = (image_shape[0] - image_size)/2
+                y = (image_shape[0] - image_size)//2
                 image = image[:][y:y+image_size]
+
             elif image_shape[1] > image_size:
                 #logging.info("Image is not square. X-axis will be cropped.")
-                x = (image_shape[1] - image_size)/2
+                x = (image_shape[1] - image_size)//2
                 image = image[:, x:x+image_size, :]
 
             #logging.info("Cropped image size: %dx%d", image_shape[0],
