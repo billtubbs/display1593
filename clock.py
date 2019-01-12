@@ -51,10 +51,10 @@ grn = np.array((0, g, 0))
 blu = np.array((0, 0, b))
 white = np.array((r, g, b))
 
-dark_red = red*2/3
-dark_grn = grn*2/3
-dark_blu = blu*2/3
-grey = white*2/3
+dark_red = red*2//3
+dark_grn = grn*2//3
+dark_blu = blu*2//3
+grey = white*2//3
 
 size = np.array(display_size)
 centre = size/2
@@ -68,7 +68,6 @@ w = 6
 def radial_line(centre, theta, r1, r2, w):
 
     e = np.array((-w*np.cos(theta), -w*np.sin(theta)))
-
     p1 = np.array((centre[0] + r1*np.sin(theta), centre[1] - r1*np.cos(theta)))
     p2 = np.array((centre[0] + r2*np.sin(theta), centre[1] - r2*np.cos(theta)))
 
