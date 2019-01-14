@@ -115,7 +115,6 @@ colourArray = np.array((
     0x303080, 0x343480, 0x383880, 0x3c3c80
 ))
 
-
 # Physical x co-ordinates of all leds
 
 centres_x = np.array((
