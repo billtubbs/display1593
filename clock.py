@@ -133,7 +133,7 @@ def main(argv):
 
     img = clock_image(t)
     img.save("clock.png")
-    dis.show_image("clock.png")
+    dis.show_image_calibrated("clock.png")
 
     hr, min, s = t.hour, t.minute, t.second
 
@@ -148,7 +148,7 @@ def main(argv):
 
         img = clock_image(t)
         img.save("clock.png")
-        dis.show_image("clock.png")
+        dis.show_image_calibrated("clock.png")
 
         min = t.minute
         if min == 0:

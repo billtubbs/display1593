@@ -44,6 +44,9 @@ import ledArray_data_1593 as leds
 with open('data/mask1593b.pickle', 'rb') as f:
     mask1593 = pickle.load(f)   # load object from file
 
+# Load RGB colour intensity calibration scales
+rgb_scales = np.load('data/rgb_scales.npy')
+
 # Connection details
 
 # These are specific to the computer you are running
@@ -75,7 +78,7 @@ class Display1593Error(Exception):
 class Teensy(object):
     """Teensy micro-controller connection object class."""
 
-    def __init__(self, address, baud=38400):
+    def __init__(self, address, baud=9600):
 
         self.address = address
         self.baud = baud
@@ -371,6 +374,20 @@ class Display1593(object):
         img = ndimage.imread(filename)
         z = self.convert_image(self.prepare_image(img))
         self.setAllLeds(z**2/(256*dimness))
+
+    def show_image_calibrated(self, filename, rgb_scales=rgb_scales,
+                              brightness=2):
+
+        img = ndimage.imread(filename)
+        z = self.convert_image(self.prepare_image(img))
+
+        # Uses rgb_scales array to calibrate intensities
+        rgb = np.array([0, 1, 2]*leds.numCells)
+        z = rgb_scales[brightness][
+            (z.ravel()//8, rgb)
+        ].reshape(leds.numCells, 3)
+
+        self.setAllLeds(z)
 
     def camera_grab(self, filename):
         """Use the Picamera to take and image and save it
