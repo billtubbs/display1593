@@ -38,7 +38,7 @@ Data on the LED co-ordinates, nearest neighbours etc. is currently stored in thi
 
 ## Current list of display projects in this repository:
 * [clock.py](clock.py) - displays a round (analog) clock face
-# [coltest.py](coltest.py) - displays a test-screen to calibrate RGB colour scales
+* [coltest.py](coltest.py) - displays a test-screen to calibrate RGB colour scales
 * [digclock.py](digclock.py) - displays a digital clock face
 * [lightlevels.py](lightlevels.py) - displays and logs light intensity levels using the built-in light sensor 
 * [shapes.py](shapes.py) - displays random moving shapes of different colours
