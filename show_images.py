@@ -10,50 +10,46 @@ from datetime import datetime
 import numpy as np
 from scipy import ndimage
 import display1593 as display
+import argparse
+
+parser = argparse.ArgumentParser(description='Display sequence of images.')
+parser.add_argument('period', type=int, default=20,
+                    help='Time in minutes that each image is displayed.')
+args = parser.parse_args()
 
 logging.basicConfig(
 	filename='logfile.txt',
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# To identify new devices connected to Raspberry Pi USB ports
-# Use type lsusb into the shell
-# Example:
-# Bus 001 Device 006: ID 16c0:0483 VOTI Teensyduino Serial
-# Bus 001 Device 005: ID 16c0:0483 VOTI Teensyduino Serial
-
-# To find the port name of each Teensy use the following with
-# and without the Teensies plugged in:
-# ls /dev/tty*
-
-
+# Programmed hourly brightness levels
 bcycle = {
-    0: 12,
-    1: 12,
-    2: 12,
-    3: 12,
-    4: 12,
-    5: 12,
-    6: 12,
-    7: 10,
-    8: 5,
-    9: 3,
-    10: 2,
-    11: 2,
-    12: 2,
-    13: 2,
-    14: 2,
-    15: 2,
-    16: 2,
-    17: 3,
-    18: 5,
-    19: 10,
-    20: 12,
-    21: 12,
-    22: 12,
-    23: 12
+    0: 0,
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+    6: 0,
+    7: 0,
+    8: 1,
+    9: 4,
+    10: 5,
+    11: 5,
+    12: 5,
+    13: 5,
+    14: 5,
+    15: 5,
+    16: 5,
+    17: 4,
+    18: 1,
+    19: 0,
+    20: 0,
+    21: 0,
+    22: 0,
+    23: 0
 }
 
 
@@ -69,35 +65,47 @@ def main():
     fnames = [
         "images/monalisa.png",
         "images/einstein.jpeg",
+        "images/audrey.jpg",
         "images/muhammedali.jpg",
         "images/bowie.jpg",
         "images/spock.jpg",
-        "images/hendrix.jpg"
+        "images/hendrix.jpg",
+        "images/amy.png",
+        "images/cohen.png"
     ]
+
 
     i = 0
     status = ""
-    col = 0
-    prev_dimness = None
+
+    # Get current time
+    start_time = datetime.now()
+    hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
+
+    brightness = bcycle[hr % 24]
+    logging.info("Brightness: %d", brightness)
+    logging.info("Delay time (mins): %d", args.period)
 
     while True:
 
         for f in fnames:
 
             logging.info("Showing image %s", f.__repr__())
+
+            # Set brightness level
+            if brightness != bcycle[hr % 24]:
+                brightness = bcycle[hr % 24]
+                logging.info("Brightness adjusted: %d", brightness)
+
+            dis.show_image_calibrated(f, brightness=brightness)
+
+            while ((datetime.now() - start_time).total_seconds() <
+                   60*args.period):
+                pass
+
             # Get current time
             start_time = datetime.now()
             hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
-
-            # Set display dimmer level
-            dimness = bcycle[hr % 24]
-            if dimness != prev_dimness:
-                logging.info("Dimness adjusted: %d", dimness)
-
-            dis.show_image(f, dimness=dimness)
-
-            while (datetime.now() - start_time).total_seconds() < 60*10:
-                pass
 
     exit()
 
