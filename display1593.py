@@ -27,6 +27,7 @@ import logging
 import numpy as np
 from scipy import ndimage
 from scipy import misc
+from PIL import Image
 
 # If using Python 2:
 #from itertools import izip
@@ -273,19 +274,22 @@ class Display1593(object):
 
         return tuple(col)
 
-    def prepare_image(self, image):
-        """Adjusts the size of the ndimage stored in image and
-        returns a 256x256 pixel image suitable for use with
-        the method convert_image()."""
+    def prepare_image(self, image, size=(256, 256)):
+        """Adjusts the size of image and returns a 256x256
+        pixel image suitable for use with the method
+        convert_image()."""
 
-        #logging.info("Preparing image %s", str(image.shape))
+        if isinstance(image, Image.Image):
+            image = np.array(image)
 
-        # Find out how many layers the image has
+        logging.info("Preparing image %s", str(image.shape))
+
+        # Find out how many colour layers the image has
         image_shape = image.shape[:2]
         if len(image.shape) > 2:
-            image_cols = image.shape[2]
+            n_cols = image.shape[2]
         else:
-            image_cols = 1
+            n_cols = 1
 
         data_type = image.dtype
 
@@ -293,10 +297,10 @@ class Display1593(object):
         # assume first three are red, green, blue and
         # ignore the rest
 
-        if image_cols > 3:
+        if n_cols > 3:
             image = image[:, :, :3]
-            image_cols = image.shape[2]
-            #logging.info("Image reduced to %d layers (R, G, B)", imageCols)
+            n_cols = image.shape[2]
+            logging.info("Image reduced to %d layers (R, G, B)", n_cols)
 
         # Determine smallest dimension (x or y)
         image_size = min(image_shape)
@@ -304,60 +308,36 @@ class Display1593(object):
         if not image_shape[0] == image_shape[1]:
 
             if image_shape[0] > image_size:
-                #logging.info("Image is not square. Y-axis will be cropped.")
+                logging.info("Image is not square. Y-axis will be cropped.")
                 y = (image_shape[0] - image_size)//2
-                image = image[:][y:y+image_size]
+                image = image[y:y+image_size, :, :]
 
             elif image_shape[1] > image_size:
-                #logging.info("Image is not square. X-axis will be cropped.")
+                logging.info("Image is not square. X-axis will be cropped.")
                 x = (image_shape[1] - image_size)//2
                 image = image[:, x:x+image_size, :]
 
-            #logging.info("Cropped image size: %dx%d", image_shape[0],
-            #             image_shape[1])
+            logging.info("Cropped image size: %dx%d", image.shape[0],
+                         image.shape[1])
 
-        # Define arrays for maximum colour intensities
-        # of final image
+        # Adjust maximum colour intensities of final
+        # image
 
-        cols = ['red', 'green', 'blue']
+        max_int = np.amax(image, axis=(0, 1)).tolist()
+        if n_cols > 1:
+            logging.info("Maximum RGB values: %s", str(max_int))
 
-        if image_cols > 1:
-            max_int = np.zeros((image_cols), dtype ='uint8')
-            for i in range(image_cols):
-                selCol = np.array([i], dtype=np.intp)
-                colMin = image[:, :, selCol].min()
-                colMax = image[:, :, selCol].max()
-                #logging.info("Colour %d range: %d to %d", i, colMin, colMax)
-                max_int[i] = max(255, colMax)
         else:
-            logging.info("This is a black and white image.")
-            logging.info("Intensity range: %d to %d", image.min(), image.max())
-            logging.info("Specify RGB intensities for final image (0-31):")
-
-            max_int = np.zeros((3), dtype ='uint8')
-            for i, c in enumerate(cols):
-                while True:
-                    s = raw_input(c + ": ")
-                    try:
-                        f = float(s)
-                    except:
-                        print("Enter a number between 0 and 255")
-                        continue
-                    max_int[i] = f
-                    break
+            logging.info("Maximum B&W image intensity: %d", max_int)
+            image = np.stack([image]*3, axis=2)
         # Re-size image to required pixel size for super-sampling
         # algorithm
 
-        pixels = 256
+        # Re-size image ready for super-sampling
+        # Replace with
+        s_image = np.array(Image.fromarray(image).resize(size))
 
-        # Re-size image for super-sampling
-        s_image = misc.imresize(
-            image,
-            (pixels, pixels),
-            interp='bilinear',
-            mode=None
-        )
-        #logging.info("Image re-sized: %s", str(s_image.shape[:2]))
+        logging.info("Image re-sized: %s", str(s_image.shape[:2]))
 
         return s_image
 
@@ -365,8 +345,10 @@ class Display1593(object):
         """Convert 256 x 256 RGB image array to 1593 RGB led intensities."""
 
         global mask1593
-        shape = image_array.shape
-        img_data = image_array.reshape(shape[0]*shape[1], shape[2])
+
+        # Flatten the first 2 dimensions (x, y)
+        img_data = image_array.reshape(-1, *image_array.shape[2:])
+
         return np.mean(img_data[mask1593], axis=1).astype(int)
 
     def show_image(self, filename, dimness=8):
@@ -375,10 +357,11 @@ class Display1593(object):
         z = self.convert_image(self.prepare_image(img))
         self.setAllLeds(z**2/(256*dimness))
 
-    def show_image_calibrated(self, filename, rgb_scales=rgb_scales,
-                              brightness=2):
+    def show_image_calibrated(self, filename, brightness=2,
+                              rgb_scales=rgb_scales):
 
         img = ndimage.imread(filename)
+
         z = self.convert_image(self.prepare_image(img))
 
         # Uses rgb_scales array to calibrate intensities
