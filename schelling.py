@@ -6,7 +6,6 @@
 #    http://quant-econ.net/py/schelling.html
 #
 #   Using:
-#    - John Zelle's Graphics Module, and
 #    - the KDTree class from scipy.spatial
 #
 
@@ -113,7 +112,7 @@ class Population(object):
         self.agents = []
         self.n_neighbours = n_neighbours
 
-        self.empty_spaces = range(display.leds.numCells)
+        self.empty_spaces = list(range(display.leds.numCells))
 
         self.agents = [Agent(self, group, thresholds[group]) for group in
             np.random.choice(self.n_groups, p=probs, size=n)]
