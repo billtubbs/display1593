@@ -25,6 +25,7 @@ import os
 import pickle
 import logging
 import numpy as np
+from timeit import default_timer as timer
 from scipy import ndimage
 from scipy import misc
 from PIL import Image
@@ -54,7 +55,7 @@ rgb_scales = np.load('data/rgb_scales.npy')
 # this code on
 
 # To identify new devices connected to the Raspberry Pi's
-# USB ports type lsusb into the shell
+# USB ports type lsusb -v into the shell
 
 # Example:
 # Bus 001 Device 006: ID 16c0:0483 VOTI Teensyduino Serial
@@ -86,30 +87,55 @@ class Teensy(object):
         self.serial = None
         self.name = None
 
-    def connect(self):
+    def connect(self, timeout=2):
 
         # Establish connection
-        self.serial = serial.Serial(self.address, self.baud)
+        self.serial = serial.Serial(self.address, self.baud,
+                                    timeout=timeout)
         #self.serial.open()
 
         # Request identification
-        self.serial.write(b'ID\n')
+        response = self.get_id()
 
         result = False
+        if response is not None:
+            if response.startswith(b"Teensy"):
+                self.name = response.decode("utf-8")
+                logging.info("Connection to %s (%s) successful.",
+                             self.address, response)
+                result = True
+
+        return result
+
+    def get_id(self):
+
+        # Request identification
+        self.serial.write(b'ID')
+
         try:
             response = self.serial.readline().rstrip()
         except:
             logging.info("Connection to %s failed.", self.address)
             self.serial.close()
-            return result
+            return None
 
-        if response.startswith(b"Teensy"):
-            self.name = response.decode("utf-8")  # Convert from bytes
-            logging.info("Connection to %s (%s) successful.",
-                         self.address, response)
-            result = True
+        return response
+
+    def check_connection(self):
+
+        result = False
+        try:
+            response = self.get_id()
+        except serial.SerialException:
+            pass
+        else:
+            if response.decode("utf-8") == self.name:
+                logging.info("Connection to %s (%s) checked.",
+                             self.name, self.address)
+                result = True
 
         return result
+
 
     def __repr__(self):
 
@@ -155,6 +181,10 @@ class Display1593(object):
                     self.tys[1].name
                 )
             )
+
+    def check_connections(self):
+
+        return all([tys.check_connection() for tys in self.tys])
 
     def setLed(self, led, col):
         """Set colours of an individual LED."""
@@ -206,6 +236,17 @@ class Display1593(object):
 
             logging.info("%d leds set on Teensy %d", cnt[i], i)
 
+    @staticmethod
+    def send_bytes(controller, data):
+
+        n = controller.serial.write(data)
+
+        if n != len(data):
+            raise Display1593Error(
+                  "Error sending data to Teensy. "
+                  "{} bytes sent out of {}.".format(n, len(data))
+                  )
+
     def setAllLeds(self, cols):
         """setAllLeds(self, cols)
         Set all LEDs to the specified sequence of colours.
@@ -226,16 +267,36 @@ class Display1593(object):
         self.send_bytes(self.tys[0], b'A' + data[0:mid_point])
         self.send_bytes(self.tys[1], b'A' + data[mid_point:])
 
-    @staticmethod
-    def send_bytes(controller, data):
+    def comm_test(self, show=True):
 
-        n = controller.serial.write(data)
+        logging.info("Starting communication test...")
 
-        if n != len(data):
-            raise Display1593Error(
-                  "Error sending data to Teensy. "
-                  "{} bytes sent out of {}.".format(n, len(data))
-                  )
+        # TODO: Use part of nearest neighbour data for test data
+        # data = (leds.nearestNeighbours[:, 0] % 256).astype('int8').tobytes()
+        # mid_point = leds.numLeds[0]
+        data = bytes(range(1, 101))
+
+        responses = []
+        timings = []
+        for tys in self.tys:
+            start = timer()
+            self.send_bytes(tys, b'X' + data + b'\n')
+            response = tys.serial.readline().rstrip()
+            end = timer()
+            responses.append(response)
+            timings.append(end - start)
+
+        if show:
+            for i, x in enumerate(zip(responses, timings)):
+                print("Teensy %d: %s, %.4fs" %
+                      (i, x[0].decode('utf8'), x[1]))
+
+        if all([r == b'OK' for r in responses]):
+            logging.info("Communication test successful.")
+            return True
+        else:
+            logging.info("Communication test failed.")
+            return False
 
     def clear(self):
         """Set all LEDs to black (0, 0, 0)."""
