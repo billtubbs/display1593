@@ -4,7 +4,7 @@ Python module to display random shapes (squares,
 circles, rectangles) that move slowly.
 
 Author: Bill Tubbs
-This was verion last updated: December 2017
+This was verion last updated: January 2018
 
 Execute the module directly to display the current
 time as follows:
@@ -25,6 +25,7 @@ import pygame.gfxdraw
 import random
 import math
 from datetime import datetime
+import numpy as np
 
 
 logging.basicConfig(
@@ -82,12 +83,11 @@ class Shape(object):
     def update_next_id(cls):
         cls.next_id += 1
 
-    def __init__(self, stype, (x, y), sizes, colour, speed,
+    def __init__(self, stype, pt, sizes, colour, speed,
                  direction, rotation=0):
 
         self.stype = stype
-        self.x = x
-        self.y = y
+        self.pt = pt
         self.sizes = sizes
         self.colour = colour
         self.speed = speed
@@ -98,7 +98,7 @@ class Shape(object):
 
         now = datetime.now()
         logging.info("%s %d (%.0f, %.0f) created.", self.stype, self.id,
-                     self.x, self.y)
+                     self.pt[0], self.pt[1])
 
     def display(self):
 
@@ -106,32 +106,35 @@ class Shape(object):
             # gfxdraw.aacircle(surface, x, y, r, color) -> None
             r = self.sizes[0]/2
             pygame.gfxdraw.aacircle(screen,
-                int(self.x - r), int(self.y - r), int(r), self.colour)
+                int(self.pt[0] - r), int(self.pt[1] - r), int(r),
+                    self.colour)
             pygame.gfxdraw.filled_circle(screen,
-                int(self.x - r), int(self.y - r), int(r), self.colour)
+                int(self.pt[0] - r), int(self.pt[1] - r), int(r),
+                    self.colour)
 
         elif self.stype == "square":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             r = self.sizes[0]/2
             pygame.draw.rect(screen,
-                self.colour, (int(self.x - r), int(self.y - r),
+                self.colour, (int(self.pt[0] - r), int(self.pt[1] - r),
                 self.sizes[0], self.sizes[0]), 0)
 
         elif self.stype == "rectangle":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             w, h = self.sizes[0]/2, self.sizes[1]/2
             pygame.draw.rect(screen,
-                self.colour, (int(self.x - w), int(self.y - h),
+                self.colour, (int(self.pt[0] - w), int(self.pt[1] - h),
                 self.sizes[0], self.sizes[1]), 0)
 
         elif self.stype == "strip":
             # draw.rect(screen, color, (x,y,width,height), thickness)
             if self.sizes[0] == 0:
-                pygame.draw.rect(screen, self.colour, (-width, int(self.y),
-                             width*3, self.sizes[1]), 0)
+                pygame.draw.rect(screen, self.colour, (-width,
+                                 int(self.pt[1]), width*3,
+                                 self.sizes[1]), 0)
             elif self.sizes[1] == 0:
-                pygame.draw.rect(screen, self.colour, (int(self.x), -height,
-                             self.sizes[0], height*3), 0)
+                pygame.draw.rect(screen, self.colour, (int(self.pt[0]),
+                                 -height, self.sizes[0], height*3), 0)
 
         elif self.stype == "triangle":
             # gfxdraw.filled_trigon(surface, x1, y1, x2, y2, x3, y3,
@@ -142,9 +145,9 @@ class Shape(object):
             tb = math.acos((a*a + c*c - b*b)/(2*a*c))
 
             rel_pts = (
-                (-a*0.5, 0),
-                (a*0.5, 0),
-                (c*math.cos(tb) - a*0.5, c*math.sin(tb))
+                [-a*0.5, 0],
+                [a*0.5, 0],
+                [c*math.cos(tb) - a*0.5, c*math.sin(tb)]
             )
 
             points = []
@@ -156,8 +159,8 @@ class Shape(object):
                     theta = math.atan(p[1]/p[0])
                 r = p[0]/math.cos(theta)
                 theta += self.direction
-                points.append((self.x + r*math.sin(theta),
-                               self.y + r*math.cos(theta)))
+                points.append((self.pt[0] + r*math.sin(theta),
+                               self.pt[1] + r*math.cos(theta)))
 
             p1, p2, p3 = points
             pygame.gfxdraw.filled_trigon(screen, int(p1[0]), int(p1[1]),
@@ -168,26 +171,26 @@ class Shape(object):
     def move(self):
         if self.stype == 'strip':
             if self.sizes[0] == 0:
-                self.y -= self.speed
+                self.pt[1] -= self.speed
             elif self.sizes[1] == 0:
-                self.x += self.speed
+                self.pt[0] += self.speed
         else:
-            self.x += math.sin(self.direction) * self.speed
-            self.y -= math.cos(self.direction) * self.speed
+            self.pt[0] += math.sin(self.direction) * self.speed
+            self.pt[1] -= math.cos(self.direction) * self.speed
         if self.stype == "triangle":
             self.direction += self.rotation
 
     def check_in_bounds(self):
         """Return True if shape is within the bounds:
-        (-width <= self.x < 2*width) and (-height <= self.y
+        (-width <= self.pt[0] < 2*width) and (-height <= self.pt[1]
         < 2*height).
         """
-        return ((-width <= self.x < 2*width) and
-                (-height <= self.y < 2*height))
+        return ((-width <= self.pt[0] < 2*width) and
+                (-height <= self.pt[1] < 2*height))
 
     def __repr__(self):
         return "Shape({}, ({}, {}), ({}, {}), {}, {}, {})".format(
-                    self.stype, self.x, self.y, self.sizes[0],
+                    self.stype, self.pt[0], self.pt[1], self.sizes[0],
                     self.sizes[1], self.colour, self.speed,
                     self.direction)
 
@@ -198,15 +201,15 @@ class RandomShape(Shape):
     def __init__(self):
 
         params = self.random_init_params()
-        stype, (x, y), sizes, colour, speed, direction, rotation = params
+        stype, pt, sizes, colour, speed, direction, rotation = params
 
         # Python 2 version:
-        super(self.__class__, self).__init__(stype, (x, y), sizes, colour,
-                                             speed, direction, rotation)
+        #super(self.__class__, self).__init__(stype, pt, sizes, colour,
+        #                                     speed, direction, rotation)
 
         # Python 3 version:
-        #super().__init__(stype, (x, y), size, colour, speed, direction,
-        #                 rotation)
+        super().__init__(stype, pt, sizes, colour, speed, direction,
+                         rotation)
 
     def random_init_params(self):
 
@@ -250,7 +253,7 @@ class RandomShape(Shape):
         else:
             rotation = 0
 
-        return (stype, (x, y), sizes, colour, speed, direction, rotation)
+        return (stype, [x, y], sizes, colour, speed, direction, rotation)
 
 
 logging.info("\n\n-------------- shapes.py --------------\n")
@@ -297,7 +300,7 @@ while running:
         shape.move()
         if shape.check_in_bounds() is not True:
             logging.info("%s %d (%.0f, %.0f) out of bounds.",
-                         shape.stype, shape.id, shape.x, shape.y)
+                         shape.stype, shape.id, shape.pt[0], shape.pt[1])
             # Create new shape
             my_shapes[i] = RandomShape()
             shape = my_shapes[i]
@@ -305,10 +308,10 @@ while running:
 
     # Convert pygame screen to numpy array
     s = screen.get_buffer()
-    x = pygame.surfarray.pixels3d(screen).swapaxes(0, 1)
+    img = pygame.surfarray.pixels3d(screen).swapaxes(0, 1)
+    assert img.shape == (256, 256, 3)
 
     # Tell display to show image
-    z = dis.convert_image(x)
-    dis.setAllLeds(z)
+    dis.show_image_calibrated(img, resize=False)
 
     clock.tick(0.5)
