@@ -91,12 +91,6 @@ def main():
         while (datetime.now().hour == hr):
             time.sleep(10)
 
-    exit()
 
-
-
-# ------------------------- END OF MAIN CODE ------------------------
-
-
-if __name__ == '__main__':  main()
-
+if __name__ == '__main__':
+    main()
