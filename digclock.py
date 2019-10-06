@@ -41,7 +41,7 @@ logging.basicConfig(
 # all the segments of each LCD digit (x4) plus the two dots
 # that look like a ':' symbol.
 # The complete display looks something like this: '88:88'
-with open('/home/pi/code/digclock/digdata.pickle', 'rb') as handle:
+with open('digclock/digdata.pickle', 'rb') as handle:
     dig_data = pickle.load(handle)
 
 # Data for the 4 digits are stored in:
@@ -109,7 +109,8 @@ class DigitalClock(object):
         """
 
         if not all([c in 'rgb' for c in color]):
-            raise ValueError("color must be a string containing only 'r', 'g' and 'b'.")
+            raise ValueError("color must be a string containing only 'r', 'g' "
+                             "and 'b'.")
         self.rgb = [c in color for c in 'rgb']
         self.imax = imax
 
@@ -132,10 +133,11 @@ class DigitalClock(object):
 
         self.clear_all()
 
-        digits = [time_string[i] for i in [0,1,3,4]]
+        digits = [time_string[i] for i in [0, 1, 3, 4]]
         for i, d in enumerate(digits):
             if d not in "01234567890 ":
-                raise ValueError("time_string must contain only digits (0-9) or spaces")
+                raise ValueError("time_string must contain only digits (0-9) "
+                                 "or spaces")
             if d != " ":
                 self.add_digit(i+1, int(d))
 
@@ -151,15 +153,15 @@ class DigitalClock(object):
         """Add colour intensities for the ':' symbol."""
 
         for n in range(2):
-            for i, x in dig_data[0][n].iteritems():
-                self.smem[i] += x*self.imax/255
+            for i, x in dig_data[0][n].items():
+                self.smem[i] += x * self.imax // 255
 
     def clear_dots(self):
         """Set colour intensities for the ':' symbol
         to zero."""
 
         for n in range(2):
-            for i, x in dig_data[0][n].iteritems():
+            for i, x in dig_data[0][n].items():
                 self.smem[i] = 0
 
     def add_digit(self, d, n):
@@ -167,15 +169,15 @@ class DigitalClock(object):
         digit d."""
 
         for s in d_chars[n]:
-            for i, x in dig_data[d][s].iteritems():
-                self.smem[i] += x*self.imax/255
+            for i, x in dig_data[d][s].items():
+                self.smem[i] += x * self.imax // 255
 
     def clear_digit(self, d):
         """Add colour intensities for the number n to
         digit d."""
 
         for s in d_chars[8]:
-            for i, x in dig_data[d][s].iteritems():
+            for i, x in dig_data[d][s].items():
                 self.smem[i] = 0
 
     def update_display(self):
@@ -252,7 +254,7 @@ def main(argv):
         if d1 == 0:
 
             # Set value for digit 2
-            d2 = (min / 10)
+            d2 = (min // 10)
 
             dclock.clear_digit(3)
             dclock.add_digit(3, d2)
@@ -260,7 +262,7 @@ def main(argv):
         if min == 0:
 
             # Set values for digits 3 and 4
-            d4, d3 = (hr / 10), (hr % 10)
+            d4, d3 = (hr // 10), (hr % 10)
 
             dclock.clear_digit(2)
             dclock.add_digit(2, d3)
