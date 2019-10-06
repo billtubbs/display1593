@@ -274,7 +274,7 @@ class Display1593(object):
         # TODO: Use part of nearest neighbour data for test data
         # data = (leds.nearestNeighbours[:, 0] % 256).astype('int8').tobytes()
         # mid_point = leds.numLeds[0]
-        data = bytes(range(1, 101))
+        data = bytes(range(1, 251))
 
         responses = []
         timings = []
@@ -418,20 +418,29 @@ class Display1593(object):
         z = self.convert_image(self.prepare_image(img))
         self.setAllLeds(z**2/(256*dimness))
 
-    def show_image_calibrated(self, filename, brightness=2,
+    def show_image_calibrated(self, img, resize=True,
+                              brightness=2,
                               rgb_scales=rgb_scales):
 
-        img = ndimage.imread(filename)
+        if brightness == 0:
+            self.clear()
 
-        z = self.convert_image(self.prepare_image(img))
+        else:
+            if isinstance(img, str):
+                img = ndimage.imread(img)
 
-        # Uses rgb_scales array to calibrate intensities
-        rgb = np.array([0, 1, 2]*leds.numCells)
-        z = rgb_scales[brightness][
-            (z.ravel()//8, rgb)
-        ].reshape(leds.numCells, 3)
+            if resize:
+                z = self.convert_image(self.prepare_image(img))
+            else:
+                z = self.convert_image(img)
 
-        self.setAllLeds(z)
+            # Uses rgb_scales array to calibrate intensities
+            rgb = np.array([0, 1, 2]*leds.numCells)
+            z = rgb_scales[brightness - 1][
+                (z.ravel()//8, rgb)
+            ].reshape(leds.numCells, 3)
+
+            self.setAllLeds(z)
 
     def camera_grab(self, filename):
         """Use the Picamera to take and image and save it
