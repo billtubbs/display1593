@@ -8,7 +8,6 @@
 import logging
 from datetime import datetime
 import numpy as np
-from scipy import ndimage
 import display1593 as display
 import argparse
 
@@ -32,10 +31,10 @@ bcycle = {
     3: 0,
     4: 0,
     5: 0,
-    6: 0,
-    7: 0,
-    8: 1,
-    9: 4,
+    6: 1,
+    7: 2,
+    8: 4,
+    9: 5,
     10: 5,
     11: 5,
     12: 5,
@@ -44,11 +43,11 @@ bcycle = {
     15: 5,
     16: 5,
     17: 4,
-    18: 1,
-    19: 0,
-    20: 0,
-    21: 0,
-    22: 0,
+    18: 2,
+    19: 1,
+    20: 1,
+    21: 1,
+    22: 1,
     23: 0
 }
 
@@ -73,7 +72,6 @@ def main():
         "images/amy.png",
         "images/cohen.png"
     ]
-
 
     i = 0
     status = ""
