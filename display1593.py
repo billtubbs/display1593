@@ -27,7 +27,6 @@ import logging
 import numpy as np
 from timeit import default_timer as timer
 from scipy import ndimage
-from scipy import misc
 from PIL import Image
 
 # If using Python 2:
