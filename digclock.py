@@ -97,6 +97,7 @@ bcycle = {
     23: 7
 }
 
+
 class DigitalClock(object):
     """DigitalClock class"""
 
@@ -143,7 +144,8 @@ class DigitalClock(object):
 
         dots = time_string[2]
         if dots not in " :":
-            raise ValueError("time_string must contain a ':' or space between the 2nd and 3rd digits.")
+            raise ValueError("time_string must contain a ':' or space "
+                             "between the 2nd and 3rd digits.")
         if dots == ':':
             self.add_dots()
 
@@ -195,6 +197,7 @@ class DigitalClock(object):
         self.clear_dots()
         for d in range(1, 5):
             self.clear_digit(d)
+
 
 def main(argv):
     """Demonstration of how to use this module."""
