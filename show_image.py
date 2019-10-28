@@ -28,33 +28,37 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Programmed hourly brightness levels (0-8)
-bcycle = {
-    0: 1,
-    1: 1,
-    2: 1,
-    3: 1,
-    4: 1,
-    5: 1,
-    6: 1,
-    7: 2,
-    8: 2,
-    9: 3,
-    10: 4,
-    11: 4,
-    12: 4,
-    13: 4,
-    14: 4,
-    15: 4,
-    16: 4,
-    17: 4,
-    18: 3,
-    19: 2,
-    20: 2,
-    21: 1,
-    22: 1,
-    23: 1
+# Image brightness is based on photo resistor readings
+brightness_levels = {
+    0: 4.5,
+    1: 12.2323,
+    2: 33.2508,
+    3: 90.3849,
+    4: 245.692,
+    5: 667.859,
+    6: 1815.43,
+    7: 4934.85,
+    8: 13414.3,
+    9: 36463.9,
+    10: 99119.1,
+    11: 269434
 }
+# Convert to numpy array for easier indexing
+brightness_levels = np.array(list(brightness_levels.items()))
+
+
+def calculate_brightness_level(brightness):
+    """Converts a reading from the photo-resistor (typically
+    in the range 2.2 to 160.0) into an integer brightness
+    level for use with the show_image_calibrated method of
+    Display1593 instances.
+    """
+    if brightness > brightness_levels[:, 1].max():
+        level = brightness_levels[:, 0].max()
+    else:
+        idx = np.argmax(brightness_levels[:, 1] > brightness)
+        level = brightness_levels[idx, 0]
+    return int(level)
 
 
 def main():
@@ -63,33 +67,43 @@ def main():
 
     dis = display.Display1593()
     dis.connect()
-
     dis.clear()
 
-    # Get current time
-    start_time = datetime.now()
-    hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
+    # Parameter for calculating exponentially-weighted
+    # moving average (EWMA)
+    alpha = 0.1
 
-    brightness = None
+    # Initialize with average of series of readings from sensor
+    brightness_ewma = np.array(
+        [dis.getBrightness() for i in range(5)]
+    ).mean()
+    brightness_level = 0  # Image will be displayed first time
 
     while True:
 
         # Get current time
         start_time = datetime.now()
-        hr = start_time.hour
+        sec = start_time.second
 
-        # Set brightness level
-        if brightness != bcycle[hr % 24]:
-            brightness = bcycle[hr % 24]
-            logging.info("Brightness: %d", brightness)
+        # Read light level from photo resistor
+        brightness = dis.getBrightness()
 
+        # Update EWMA
+        brightness_ewma = alpha * brightness + (1 - alpha) * brightness_ewma
+
+        # See if image needs adjusting
+        new_level = calculate_brightness_level(brightness_ewma)
+        if new_level != brightness_level:
+            brightness_level = new_level
+            logging.info("Brightness: %d", brightness_level)
             logging.info("Showing image %s", args.filename.__repr__())
             f = os.path.join(images_dir, args.filename)
-            dis.show_image_calibrated(f, brightness=brightness)
+            dis.show_image_calibrated(f, brightness=brightness_level)
 
-        logging.info("Waiting...")
-        while (datetime.now().hour == hr):
-            time.sleep(10)
+        #logging.info("Brightness: {:.2f}, {}".format(
+        #             brightness_ewma, new_level))
+        while (datetime.now().second == sec):
+            time.sleep(0.05)  # Short wait
 
 
 if __name__ == '__main__':
