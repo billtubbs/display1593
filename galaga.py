@@ -63,7 +63,7 @@ fnames = [
     "galaga9.png",
     "galaga10.png",
     "galaga11.png",
-    "galaga12.png"
+    "galaga12.png",
     "galaga13.png",
     "galaga14.png",
     "galaga15.png",
@@ -77,7 +77,7 @@ fnames = [
     "galaga23.png",
     "galaga24.png",
     "galaga25.png",
-    "galaga26.png",
+    "galaga26.png"
 ]
 
 image_dir = 'galaga/images'
@@ -130,5 +130,5 @@ def main():
 # ------------------------- END OF MAIN CODE ------------------------
 
 
-if __name__ == '__main__':  main()
-
+if __name__ == '__main__':
+    main()
