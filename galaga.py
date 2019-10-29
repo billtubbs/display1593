@@ -31,10 +31,10 @@ bcycle = {
     3: 0,
     4: 0,
     5: 0,
-    6: 1,
-    7: 2,
-    8: 4,
-    9: 5,
+    6: 0,
+    7: 1,
+    8: 2,
+    9: 4,
     10: 5,
     11: 5,
     12: 5,
@@ -49,6 +49,21 @@ bcycle = {
     21: 1,
     22: 1,
     23: 0
+}
+
+# [print(f'{np.exp(i):.1f}: {i},') for i in range(1, 12)]
+b_levels = {
+    2.7: 1,
+    7.4: 2,
+    20.1: 3,
+    54.6: 4,
+    148.4: 5,
+    403: 6,
+    1097: 7,
+    2981: 8,
+    8103: 9,
+    22027: 10,
+    59874: 11
 }
 
 fnames = [
@@ -96,6 +111,12 @@ def main():
     # Get current time
     start_time = datetime.now()
     hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
+
+    # Use an exponentially-weighted moving average
+    ewma = dis.getBrightness()
+    alpha = 0.1
+    history = deque([ewma])
+    history_length = 32
 
     brightness = bcycle[hr % 24]
     logging.info("Brightness: %d", brightness)
