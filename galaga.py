@@ -9,6 +9,7 @@ from datetime import datetime
 import numpy as np
 import display1593 as display
 import argparse
+from collections import deque
 
 parser = argparse.ArgumentParser(description='Display sprite images from'
                                              'Galaga arcade game.')
