@@ -27,14 +27,17 @@ args = parser.parse_args()
 
 
 def download_image(url, headers=None):
+    """Download image from internet http address and return
+    PIL image.
+    """
     response = requests.get(url, headers=headers)
     return Image.open(BytesIO(response.content))
 
 
-def crop_to_brightest_area(img, crop_size, filter_size=None):
-    """Finds the brightest region of the image and
-    returns a cropped image array which contains the
-    brightest part at it's centre.
+def find_brightest_area(img, crop_size, filter_size=None):
+    """Finds the brightest region of the image and returns
+    the co-ordinates of the box that contains the brightest
+    part at its centre.
     """
 
     # Convert to 2d array by summing colour channels
@@ -67,14 +70,15 @@ def crop_to_brightest_area(img, crop_size, filter_size=None):
         y + y_size // 2
     )
 
-    return img.crop((left, top, right, bottom))
+    return left, top, right, bottom
 
 
 # Image of the sun "right now" from https://www.spaceweatherlive.com
 url = "https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0131.jpg"
 
 images_dir = 'images'
-filename = 'solar_flare.jpg'
+filename1 = 'solar_image.jpg'
+filename2 = 'solar_flare.jpg'
 
 logging.basicConfig(
 	filename='logfile.txt',
@@ -121,13 +125,15 @@ def main():
     logging.info("\n\n----------------- solar_flares.py -----------------\n")
 
     logging.info("Image refresh rate (mins): %d", args.delay)
+    crop_size = (128, 128)
+    logging.info("Snapshot image size: %s", crop_size)
 
     dis = display.Display1593()
     dis.connect()
     dis.clear()
 
     status = "load"
-    display_time = None
+    load_time = None
 
     # Parameter for calculating exponentially-weighted
     # moving average (EWMA)
@@ -143,6 +149,7 @@ def main():
 
         if status == 'load':
             # Timer to count down to next image refresh
+            load_time = time.time()
             logging.info("Downloading new image...")
             headers = {
                 'User-Agent': 'solar_flares.py',
@@ -153,21 +160,30 @@ def main():
             logging.info("Image size: %s", img.size)
             img_mb = sys.getsizeof(img.tobytes()) // 1000000
             logging.info("Image size (MB): %.2f", img_mb)
+            filepath = os.path.join(images_dir, filename1)
+            img.save(filepath)
+            #img = Image.open(filepath)
 
+            # Trim image to remove text
             margin = 48
             img_cropped = img.crop(
                 (margin, margin, img.size[0] - margin, img.size[1] - margin)
             )
-            crop_size = (256, 256)
-            img_snapshot = crop_to_brightest_area(img_cropped,
-                                                  crop_size=crop_size)
+            logging.info("Finding brightest spot...")
+            left, top, right, bottom = find_brightest_area(
+                img_cropped,
+                crop_size=crop_size
+            )
+            logging.info("Co-ordinates: (%d, %d, %d, %d)", left, top,
+                         right, bottom)
+            img_snapshot = img_cropped.crop((left, top, right, bottom))
             logging.info("Snapshot size: %s", img_snapshot.size)
-            filepath = os.path.join(images_dir, filename)
+            filepath = os.path.join(images_dir, filename2)
             img_snapshot.save(filepath)
-            logging.info("New image snapshot saved")
+            logging.info("Snapshot image saved to '%s'", filepath)
             status = 'display'
         elif status == 'wait':
-            if (time.time() - display_time) // 60 > args.delay:
+            if (time.time() - load_time) // 60 > args.delay:
                 status = 'load'
 
         # Get current time
@@ -183,13 +199,13 @@ def main():
         # See if image needs updating
         new_level = calculate_brightness_level(brightness_ewma)
         if new_level != brightness_level or status == 'display':
-            brightness_level = new_level
-            logging.info("Brightness: %d", brightness_level)
-            logging.info("Showing image %s", filename.__repr__())
-            filepath = os.path.join(images_dir, filename)
+            if new_level != brightness_level:
+                brightness_level = new_level
+                logging.info("Brightness: %d", brightness_level)
+            filepath = os.path.join(images_dir, filename2)
             dis.show_image_calibrated(filepath, brightness=brightness_level)
+            logging.info("Image displayed: '%s'", filename2)
             if status == 'display':
-                display_time = time.time()
                 status = 'wait'
 
         while (datetime.now().second == sec):
