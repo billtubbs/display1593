@@ -183,7 +183,7 @@ def main():
             logging.info("Snapshot image saved to '%s'", filepath)
             status = 'display'
         elif status == 'wait':
-            if (time.time() - load_time) // 60 > args.delay:
+            if (time.time() - load_time) // 60 >= args.delay:
                 status = 'load'
 
         # Get current time
