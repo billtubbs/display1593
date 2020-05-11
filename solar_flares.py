@@ -187,8 +187,7 @@ def main():
                 status = 'load'
 
         # Get current time
-        start_time = datetime.now()
-        sec = start_time.second
+        sec = datetime.now().second
 
         # Read light level from photo resistor
         brightness = dis.getBrightness()
