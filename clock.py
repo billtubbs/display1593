@@ -104,6 +104,32 @@ def clock_image(time):
 
     return display
 
+def show_image_inc(dis, img_old, img_new):
+
+    img_array1 = np.array(img_old)
+    img_array2 = np.array(img_new)
+    assert img_array1.shape == (256, 256, 4)
+    assert img_array2.shape == (256, 256, 4)
+    z1 = dis.convert_image(img_array1)[:,:3]
+    z2 = dis.convert_image(img_array2)[:,:3]
+    difference = z2 - z1
+    diff_idx = difference.sum(axis=1).nonzero()
+
+    leds = diff_idx[0]
+    cols = z2[diff_idx[0]]
+
+    # Use rgb_scales array to calibrate intensities
+#     rgb = np.array([0, 1, 2]*leds.numCells)
+#     z = rgb_scales[brightness - 1][
+#         (z.ravel()//8, rgb)
+#     ].reshape(leds.numCells, 3)
+
+    for i, led in enumerate(leds):
+        dis.setLed(led, (cols[i,:] // 10).tolist())
+
+    #TODO: This doesn't work - comm errors
+    #dis.setLeds(diff_idx[0], z2[diff_idx])
+
 
 def main(argv):
     """Demonstration of how to use this module."""
@@ -131,9 +157,10 @@ def main(argv):
     except IndexError:
         imax = 200
 
-    img = clock_image(t)
-    img.save("clock.png")
-    dis.show_image_calibrated("clock.png")
+    img_old = Image.fromarray(np.zeros((256, 256, 4), dtype='uint8'), 'RGBA')
+    img_new = clock_image(t)
+    show_image_inc(dis, img_old, img_new)
+    img_old = img_new
 
     hr, min, s = t.hour, t.minute, t.second
 
@@ -143,12 +170,11 @@ def main(argv):
         while t.minute == min:
             while datetime.now().time().second == s:
                 pass
-
             t = datetime.now().time()
 
-        img = clock_image(t)
-        img.save("clock.png")
-        dis.show_image_calibrated("clock.png")
+        img_new = clock_image(t)
+        show_image_inc(dis, img_old, img_new)
+        img_old = img_new
 
         min = t.minute
         if min == 0:
