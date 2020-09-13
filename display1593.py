@@ -254,13 +254,17 @@ class Display1593(object):
                 array of values of shape (1593, 3).
         """
         # TODO: Still getting occasional data errors
-        # Try reducing baud rate maybe?
+        # with the following LEDs: 42, 840.
 
         if len(cols) != leds.numCells:
             raise Display1593Error("setAllLeds() requires a sequence of"
                                    " %d colours." % leds.numCells)
 
-        data = np.array(cols, dtype='int8').tobytes()
+        data = np.array(cols, dtype='int8')
+        # Set dud LEDs to black (doesn't fix problem)
+        data[42] = 0
+        data[840] = 0
+        data = data.tobytes()
 
         mid_point = leds.numLeds[0]*3
         self.send_bytes(self.tys[0], b'A' + data[0:mid_point])
