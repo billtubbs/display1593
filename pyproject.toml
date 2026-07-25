@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "display1593"
+version = "0.1.0"
+description = "LED display controller for the 1593 display"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=2.2.5",
+  "numba>=0.61.2",
+  "pyserial>=3.5",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
