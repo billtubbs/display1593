@@ -53,6 +53,7 @@ repainted for the new time.
 import logging
 import pickle
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 
@@ -66,7 +67,8 @@ from display1593 import Display1593
 
 logger = logging.getLogger(__name__)
 
-PICKLE_PATH = "digdata.pickle"
+BASE_DIR = Path(__file__).resolve().parent
+PICKLE_PATH = BASE_DIR / "digdata.pickle"
 N_LEDS = 1593
 
 # Which segments (0-6) are lit to display each digit value, 0-9.
