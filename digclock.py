@@ -136,14 +136,30 @@ def preprocess_dig_data(dig_data):
     Convert the raw dict-of-dicts pickle structure into numpy arrays for
     fast vectorized indexing.
 
+    The pickle file is expected to be a dict keyed by position number, where
+    each value is itself a dict mapping segment numbers to LED mappings.
+
     Returns a list of 5 dicts (one per digit position), each mapping a
     segment number to an (idx_array, val_array) pair of matching length,
     ready for direct use as `smem[idx_array] = val_array // bness`.
     """
+    if not isinstance(dig_data, dict):
+        raise TypeError("dig_data must be a dict keyed by position")
+
     processed = []
-    for position_data in dig_data:
+    for key in sorted(dig_data):
+        position_data = dig_data[key]
+        if not isinstance(position_data, dict):
+            raise TypeError(
+                f"position {key} must be a dict of segment mappings"
+            )
+
         segments = {}
         for n, seg in position_data.items():
+            if not isinstance(seg, dict):
+                raise TypeError(
+                    f"segment {n} in position {key} must be a dict"
+                )
             idx = np.fromiter(seg.keys(), dtype=np.int64)
             vals = np.fromiter(seg.values(), dtype=np.int64)
             segments[n] = (idx, vals)
