@@ -8,20 +8,37 @@ API does not expose the older LED geometry helpers, the model uses a simple
 """
 
 import logging
+import logging.handlers
 import time
 from datetime import datetime
+from pathlib import Path
 from random import shuffle
 
 import numpy as np
 from scipy.spatial import KDTree
 
-from display1593 import Display1593, logger
+from display1593 import Display1593
+
+logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent
+LOG_PATH = BASE_DIR / "schelling.log"
+LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
+
+if not logger.handlers:
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=256 * 1024,
+        backupCount=2,
+    )
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
 
 logging.basicConfig(
-    filename="logfile.txt",
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s %(message)s",
+    level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
+    format=LOG_FORMAT,
 )
 
 
