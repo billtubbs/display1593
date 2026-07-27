@@ -2,8 +2,10 @@ import logging
 import os
 import sys
 import time
-from itertools import pairwise
 from pathlib import Path
+
+from itertools import pairwise
+
 
 import numpy as np
 import serial
@@ -14,6 +16,9 @@ from serial_comm import (
     receive_data_from_arduino,
     send_data_to_arduino,
 )
+
+from ledArray_data_1593 import centres_x, centres_y, nearestNeighbours
+
 
 # Numba array types
 readonly_uint8_array = types.Array(types.uint8, 1, "C", readonly=True)
@@ -56,7 +61,6 @@ DATA_DIR = Path(__file__).resolve().parents[1] / ".." / "data"
 if str(DATA_DIR) not in sys.path:
     sys.path.insert(0, str(DATA_DIR))
 
-from ledArray_data_1593 import centres_x, centres_y, nearestNeighbours
 
 # Serial ports of Teensy devices
 # Find these by running ls /dev/tty.* from command line
