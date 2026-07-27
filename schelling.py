@@ -9,6 +9,7 @@ API does not expose the older LED geometry helpers, the model uses a simple
 
 import logging
 import logging.handlers
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -17,11 +18,14 @@ from random import shuffle
 import numpy as np
 from scipy.spatial import KDTree
 
+BASE_DIR = Path(__file__).resolve().parent
+SRC_DIR = BASE_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 from display1593 import Display1593
 
 logger = logging.getLogger(__name__)
-
-BASE_DIR = Path(__file__).resolve().parent
 LOG_PATH = BASE_DIR / "schelling.log"
 LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
 
@@ -90,6 +94,7 @@ class Agent(object):
         """
 
         self.population.display.set_led(self.id, self.colour)
+        self.population.display.show_now()
 
     def unshow(self):
         """Clear the LED representing the agent."""
@@ -97,6 +102,7 @@ class Agent(object):
         self.population.display.set_led(
             self.id, self.population.background_col
         )
+        self.population.display.show_now()
 
 
 class Population(object):
@@ -249,11 +255,15 @@ class Population(object):
         for i in self.empty_spaces:
             self.display.set_led(i, self.background_col)
 
+        self.display.show_now()
+
     def unshow(self):
         """Clear all agents on the LED array."""
 
         for agent in self.agents:
             agent.unshow()
+
+        self.display.show_now()
 
 
 def main():
