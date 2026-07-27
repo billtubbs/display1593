@@ -51,6 +51,7 @@ repainted for the new time.
 """
 
 import logging
+import logging.handlers
 import pickle
 from datetime import datetime
 from pathlib import Path
