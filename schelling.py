@@ -137,11 +137,20 @@ class Population(object):
         self.background_col = background_col
         self.agents = []
         self.n_neighbours = n_neighbours
-        self.n_cells = int(dis.n_leds)
+        self.n_cells = int(getattr(dis, "n_leds", 0))
 
-        grid_size = int(np.ceil(np.sqrt(self.n_cells)))
-        self.coords_x = np.arange(self.n_cells) % grid_size
-        self.coords_y = np.arange(self.n_cells) // grid_size
+        layout = getattr(dis, "leds", None)
+        centres_x = getattr(layout, "centres_x", None)
+        centres_y = getattr(layout, "centres_y", None)
+
+        if centres_x is None or centres_y is None:
+            raise ValueError(
+                "Display object must provide real LED layout coordinates"
+            )
+
+        coords_count = min(self.n_cells, len(centres_x), len(centres_y))
+        self.coords_x = np.asarray(centres_x[:coords_count], dtype=float)
+        self.coords_y = np.asarray(centres_y[:coords_count], dtype=float)
 
         self.empty_spaces = list(range(self.n_cells))
 
@@ -256,6 +265,16 @@ class Population(object):
             self.display.set_led(i, self.background_col)
 
         self.display.show_now()
+
+    def debug_led_range(self):
+        """Log the LED range the script will target."""
+
+        logger.info(
+            "LED range: 0..%d (n_leds=%d, empty spaces=%d)",
+            self.n_cells - 1,
+            self.n_cells,
+            len(self.empty_spaces),
+        )
 
     def unshow(self):
         """Clear all agents on the LED array."""

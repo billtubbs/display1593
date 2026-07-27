@@ -37,6 +37,13 @@ class SchellingDisplayTests(unittest.TestCase):
 
         self.assertGreaterEqual(display.show_now_calls, 1)
 
+    def test_population_uses_full_led_range(self):
+        display = DummyDisplay(n_leds=1593)
+        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
+
+        self.assertEqual(population.n_cells, 1593)
+        self.assertEqual(len(population.empty_spaces), 1593)
+
 
 if __name__ == "__main__":
     unittest.main()
