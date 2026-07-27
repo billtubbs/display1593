@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 from schelling import Population
 
 
@@ -11,6 +13,10 @@ class DummyDisplay:
 
     def set_led(self, i, rgb):
         self.leds[i] = rgb
+
+    def set_leds(self, ids, rgb_array):
+        for i, rgb in zip(ids, rgb_array):
+            self.leds[int(i)] = tuple(rgb)
 
     def clear_all(self):
         self.leds.clear()
@@ -43,6 +49,17 @@ class SchellingDisplayTests(unittest.TestCase):
 
         self.assertEqual(population.n_cells, 1593)
         self.assertEqual(len(population.empty_spaces), 1593)
+
+    def test_population_can_address_second_board_led_ids(self):
+        display = DummyDisplay(n_leds=1593)
+        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
+
+        display.set_leds(
+            np.array([798], dtype=np.int32),
+            np.array([(1, 2, 3)], dtype=np.uint8),
+        )
+
+        self.assertIn(798, display.leds)
 
 
 if __name__ == "__main__":

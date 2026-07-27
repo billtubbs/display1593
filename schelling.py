@@ -62,6 +62,8 @@ class Agent(object):
             self.population.coords_y[self.id],
         )
         self.n_neighbours = self.population.n_neighbours
+        self.like_neighbours = 0
+        self.neighbour_ids = []
 
     def happy(self):
         """Return whether the agent is happy with its current neighbours."""
@@ -93,14 +95,18 @@ class Agent(object):
         appropriate LED with the agent's group colour.
         """
 
-        self.population.display.set_led(self.id, self.colour)
+        self.population.display.set_leds(
+            np.array([self.id], dtype=np.int32),
+            np.array([self.colour], dtype=np.uint8),
+        )
         self.population.display.show_now()
 
     def unshow(self):
         """Clear the LED representing the agent."""
 
-        self.population.display.set_led(
-            self.id, self.population.background_col
+        self.population.display.set_leds(
+            np.array([self.id], dtype=np.int32),
+            np.array([self.population.background_col], dtype=np.uint8),
         )
         self.population.display.show_now()
 
@@ -261,8 +267,13 @@ class Population(object):
         for agent in self.agents:
             agent.show()
 
-        for i in self.empty_spaces:
-            self.display.set_led(i, self.background_col)
+        if self.empty_spaces:
+            empty_ids = np.array(self.empty_spaces, dtype=np.int32)
+            empty_rgb = np.tile(
+                np.array([self.background_col], dtype=np.uint8),
+                (len(empty_ids), 1),
+            )
+            self.display.set_leds(empty_ids, empty_rgb)
 
         self.display.show_now()
 
