@@ -101,12 +101,12 @@ BCYCLE = {
     9: 1,
     10: 1,
     11: 1,
-    12: 1,
-    13: 1,
-    14: 1,
-    15: 1,
-    16: 1,
-    17: 2,
+    12: 2,
+    13: 2,
+    14: 2,
+    15: 2,
+    16: 2,
+    17: 3,
     18: 5,
     19: 8,
     20: 9,
@@ -141,8 +141,7 @@ def preprocess_dig_data(dig_data):
     ready for direct use as `smem[idx_array] = val_array // bness`.
     """
     processed = []
-    for pos in range(len(dig_data)):
-        position_data = dig_data[pos]
+    for position_data in dig_data:
         segments = {}
         for n, seg in position_data.items():
             idx = np.fromiter(seg.keys(), dtype=np.int64)
@@ -303,5 +302,5 @@ def main():
 
 if __name__ == "__main__":
     logger.info("=" * 35)
-    logger.info(f"{__file__} started.")
+    logger.info("%s started.", __file__)
     main()
