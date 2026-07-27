@@ -57,19 +57,32 @@ from pathlib import Path
 
 import numpy as np
 
-logging.basicConfig(
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-    format="%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s",
-)
-
 from display1593 import Display1593
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 PICKLE_PATH = BASE_DIR / "digdata.pickle"
+LOG_PATH = BASE_DIR / "digclock.log"
 N_LEDS = 1593
+
+LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
+
+if not logger.handlers:
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=256 * 1024,
+        backupCount=2,
+    )
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+
+logging.basicConfig(
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+    format=LOG_FORMAT,
+)
 
 # Which segments (0-6) are lit to display each digit value, 0-9.
 # Key 10 (segment 7) is used by the colon dots, not a digit value.
