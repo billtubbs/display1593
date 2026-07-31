@@ -17,7 +17,7 @@ from serial_comm import (
     send_data_to_arduino,
 )
 
-from ledArray_data_1593 import centres_x, centres_y, nearestNeighbours
+from data.ledArray_data_1593 import centres_x, centres_y, nearestNeighbours
 
 
 # Numba array types
