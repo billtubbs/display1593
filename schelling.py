@@ -164,6 +164,8 @@ class Population:
             for group in np.random.choice(self.n_groups, p=probs, size=n)
         ]
 
+        self.last_agent = -1
+
     def count_like_neighbours(self, agent):
 
         assert len(agent.neighbour_ids) == self.n_neighbours
@@ -175,7 +177,7 @@ class Population:
 
         agent.like_neighbours = tally[agent.group]
 
-    def update_agents(self):
+    def update_all_agents(self):
         """Advance the population by one update round.
 
         Returns True if any agent moved during the round, otherwise False.
@@ -257,6 +259,55 @@ class Population:
                 logger.info("Agent %d moved.", i)
 
         return any_moved
+
+    def move_next_agent(self):
+        """Find the next agent, after the last one moved, that wants
+        to move, move it to a new location, and return it.
+
+        Agents are checked in order starting after ``last_agent``,
+        wrapping around the population. Returns None if no agent
+        wants to move.
+        """
+
+        n = len(self.agents)
+        all_locations = [agent.location for agent in self.agents]
+        tree = KDTree(all_locations)
+        k = self.n_neighbours + 1
+
+        for step in range(n):
+            i = (self.last_agent + 1 + step) % n
+            agent = self.agents[i]
+            agent.neighbour_ids = tree.query(agent.location, k=k)[1][1:]
+            self.count_like_neighbours(agent)
+
+            if agent.happy():
+                continue
+
+            del all_locations[i]
+            move_tree = KDTree(all_locations)
+
+            searches = 0
+            while not agent.happy():
+                agent.move(show=False)
+
+                agent.neighbour_ids = move_tree.query(
+                    agent.location, k=self.n_neighbours
+                )[1]
+                for j, neighbour_id in enumerate(agent.neighbour_ids):
+                    if neighbour_id > i:
+                        agent.neighbour_ids[j] += 1
+
+                self.count_like_neighbours(agent)
+                searches += 1
+                if searches > 50:
+                    break
+
+            agent.show()
+            logger.info("Agent %d moved.", i)
+            self.last_agent = i
+            return agent
+
+        return None
 
     def show(self):
         """Show all agents on the LED array."""
@@ -359,8 +410,14 @@ def main():
             population.show()
 
             logger.info("Model updating started...")
-            while population.update_agents():
-                pass
+            update_interval = 1.0
+            while True:
+                tick_start = time.monotonic()
+                if not population.update_all_agents():
+                    break
+                elapsed = time.monotonic() - tick_start
+                if elapsed < update_interval:
+                    time.sleep(update_interval - elapsed)
 
             logger.info("Stable population reached.")
             d = 2
