@@ -18,12 +18,12 @@ from random import shuffle
 import numpy as np
 from scipy.spatial import KDTree
 
+from display1593 import Display1593
+
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-
-from display1593 import Display1593
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
@@ -46,7 +46,7 @@ logging.basicConfig(
 )
 
 
-class Agent(object):
+class Agent:
     """Represent one agent in the Schelling segregation model."""
 
     def __init__(self, population, group, threshold):
@@ -76,11 +76,10 @@ class Agent(object):
 
         # TODO: Could make this more systematic?
         # Carry out looped search here maybe
-        self.new_id = int(np.random.choice(self.population.empty_spaces))
-
+        new_id = int(np.random.choice(self.population.empty_spaces))
         self.population.empty_spaces.append(self.id)
         self.unshow()
-        self.id = self.new_id
+        self.id = new_id
         self.population.empty_spaces.remove(self.id)
 
         self.location = (
@@ -111,7 +110,7 @@ class Agent(object):
         self.population.display.show_now()
 
 
-class Population(object):
+class Population:
     """Manage the agents and their updates for one simulation run."""
 
     def __init__(
@@ -252,8 +251,6 @@ class Population(object):
 
                 # Put the current agent's location back in the list
                 all_locations.insert(i, agent.location)
-
-            t = datetime.now()
 
             if moved == True:
                 agent.show()
