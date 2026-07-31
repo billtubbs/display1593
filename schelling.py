@@ -413,7 +413,7 @@ def main():
             update_interval = 1.0
             while True:
                 tick_start = time.monotonic()
-                if not population.update_all_agents():
+                if population.move_next_agent() is None:
                     break
                 elapsed = time.monotonic() - tick_start
                 if elapsed < update_interval:
