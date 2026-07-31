@@ -26,13 +26,13 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 COLOURS = [
-    (93, 46, 0),
-    (0, 93, 0),
-    (46, 46, 46),
-    (0, 0, 93),
-    (58, 30, 16),
-    (93, 93, 0),
-    (50, 0, 0),
+    (46, 23, 0),
+    (0, 46, 0),
+    (23, 23, 23),
+    (0, 0, 46),
+    (29, 15, 8),
+    (46, 46, 0),
+    (25, 0, 0),
 ]
 
 logger = logging.getLogger(__name__)
@@ -59,14 +59,13 @@ logging.basicConfig(
 class Agent:
     """Represent one agent in the Schelling segregation model."""
 
-    def __init__(self, population, group, threshold):
+    def __init__(self, population, group, threshold, id_):
 
         self.population = population
         self.group = group
         self.threshold = threshold
         self.colour = self.population.colours[group]
-        self.id = int(np.random.choice(self.population.empty_spaces))
-        self.population.empty_spaces.remove(self.id)
+        self.id = int(id_)
         self.location = (
             self.population.coords_x[self.id],
             self.population.coords_y[self.id],
@@ -108,7 +107,6 @@ class Agent:
             np.array([self.id], dtype=np.int32),
             np.array([self.colour], dtype=np.uint8),
         )
-        self.population.display.show_now()
 
     def unshow(self):
         """Clear the LED representing the agent."""
@@ -161,9 +159,15 @@ class Population:
 
         self.empty_spaces = list(range(self.n_cells))
 
+        groups = np.random.choice(self.n_groups, p=probs, size=n)
+        agent_ids = np.random.choice(self.empty_spaces, size=n, replace=False)
+        self.empty_spaces = list(
+            set(self.empty_spaces) - {int(i) for i in agent_ids}
+        )
+
         self.agents = [
-            Agent(self, group, thresholds[group])
-            for group in np.random.choice(self.n_groups, p=probs, size=n)
+            Agent(self, group, thresholds[group], agent_id)
+            for group, agent_id in zip(groups, agent_ids)
         ]
 
         self.last_agent = -1
@@ -350,10 +354,6 @@ def main():
     """Run the Schelling simulation loop until interrupted."""
 
     logger.info("\n\n------- Schelling Segregation Model Simulation -------\n")
-
-    # Get current time
-    start_time = datetime.now()
-    hr, mn, sc = (start_time.hour, start_time.minute, start_time.second)
 
     dis = Display1593()
     dis.connect()
