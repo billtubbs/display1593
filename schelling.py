@@ -25,6 +25,16 @@ SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+COLOURS = [
+    (93, 46, 0),
+    (0, 93, 0),
+    (46, 46, 46),
+    (0, 0, 93),
+    (58, 30, 16),
+    (93, 93, 0),
+    (50, 0, 0),
+]
+
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
 LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
@@ -129,15 +139,7 @@ class Population:
         self.probs = probs
         self.n_groups = len(probs)
         if cols is None:
-            cols = [
-                (186, 93, 0),
-                (0, 186, 0),
-                (93, 93, 93),
-                (0, 0, 186),
-                (117, 60, 33),
-                (186, 186, 0),
-                (101, 0, 0),
-            ][: self.n_groups]
+            cols = COLOURS[: self.n_groups]
         self.colours = cols
         self.background_col = background_col
         self.agents = []
@@ -356,15 +358,7 @@ def main():
     dis = Display1593()
     dis.connect()
     try:
-        cols = [
-            (186, 93, 0),
-            (0, 186, 0),
-            (93, 93, 93),
-            (0, 0, 186),
-            (117, 60, 33),
-            (186, 186, 0),
-            (101, 0, 0),
-        ]
+        cols = list(COLOURS)
 
         while True:
             logger.info("Initializing population model...")
