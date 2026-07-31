@@ -17,7 +17,7 @@ from serial_comm import (
     send_data_to_arduino,
 )
 
-from data.ledArray_data_1593 import centres_x, centres_y, nearestNeighbours
+from data.ledArray_data_1593 import centres_x, centres_y, nearest_neighbours
 
 
 # Numba array types
@@ -240,10 +240,12 @@ class Display1593:
         self.n_leds = self.led_idx[-1]
         self._connections = []
         self.leds = type("LEDLayout", (), {})()
-        self.leds.numCells = int(self.n_leds)
+        self.leds.num_cells = int(self.n_leds)
         self.leds.centres_x = np.asarray(centres_x, dtype=float)
         self.leds.centres_y = np.asarray(centres_y, dtype=float)
-        self.leds.nearestNeighbours = np.asarray(nearestNeighbours, dtype=int)
+        self.leds.nearest_neighbours = np.asarray(
+            nearest_neighbours, dtype=int
+        )
 
     def connect(self):
         connections = {}

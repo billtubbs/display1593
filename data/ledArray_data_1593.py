@@ -2,32 +2,32 @@
 
 # Contains the following variable assignments
 #
-# ledsPerStrip
-# firstLedOfStrip
-# ledIndex
+# leds_per_strip
+# first_led_of_strip
+# led_index
 # centres_x
 # centres_y
-# nearestNeighbours
-# nearestNeighbourDistances
+# nearest_neighbours
+# nearest_neighbour_distances
 
 import numpy as np
 
-numCells = 1593
-maxNumNeighbours = 6
+num_cells = 1593
+max_num_neighbours = 6
 width = 2000
 height = 2000
-numberOfControllers = 2
-numberOfStrips = 8
-maxLedsPerStrip = 100
+number_of_controllers = 2
+number_of_strips = 8
+max_leds_per_strip = 100
 
-ledsPerStrip = (
+leds_per_strip = (
     (100, 100, 98, 100, 100, 100, 100, 100),
     (99, 99, 99, 100, 100, 100, 100, 98)
 )
 
-numLeds = (sum(ledsPerStrip[0]) , sum(ledsPerStrip[1]))
+num_leds = (sum(leds_per_strip[0]) , sum(leds_per_strip[1]))
 
-firstLedOfStrip = (
+first_led_of_strip = (
     0, 100, 200, 298, 398, 498, 598, 698,
     798, 897, 996, 1095, 1195, 1295, 1395, 1495, 1593
 )
@@ -39,28 +39,24 @@ firstLedOfStrip = (
 
 # Speed of dictionary version: 11.2 microsecs per loop
 # list version: 8.01 microsecs per loop
+# vectorized (numpy) version: builds the same list without a
+# Python-level loop over the 1593 LEDs
 
-def build_lookup_table():
+def build_lookup_table(leds_per_strip, max_leds_per_strip, number_of_controllers, number_of_strips):
 
-    teensy = 0
-    strip = 0
-    pos = 0
+    lengths = np.array([n for strips in leds_per_strip for n in strips])
+    teensy_ids = np.repeat(np.arange(number_of_controllers), number_of_strips)
+    strip_ids = np.tile(np.arange(number_of_strips), number_of_controllers)
 
-    d = list()
+    teensy = np.repeat(teensy_ids, lengths)
+    strip = np.repeat(strip_ids, lengths)
+    pos = np.arange(lengths.sum()) - np.repeat(np.cumsum(lengths) - lengths, lengths)
 
-    for i in range(1593):
-        d.append((teensy, strip*maxLedsPerStrip + pos))
-        pos += 1
-        if pos == ledsPerStrip[teensy][strip]:
-            pos = 0
-            strip += 1
-            if strip == numberOfStrips:
-                strip = 0
-                teensy += 1
+    addr = strip * max_leds_per_strip + pos
 
-    return d
+    return list(zip(teensy.tolist(), addr.tolist()))
 
-ledIndex = build_lookup_table()
+led_index = build_lookup_table(leds_per_strip, max_leds_per_strip, number_of_controllers, number_of_strips)
 
 # Basic set of colours as dictionary
 colour = {
@@ -79,7 +75,7 @@ colour = {
 }
 
 # Basic set of 8 colours as ndarray
-colourArray8 = np.array((
+colour_array8 = np.array((
     0x000000, # 0 BLACK
     0x240000, # 1 RED
     0x002000, # 2 GREEN
@@ -96,7 +92,7 @@ colourArray8 = np.array((
 # intensities are adjusted to compensate for perceived
 # differences in intensity between R, G, and B.
 
-colourArray = np.array((
+colour_array = np.array((
     0x000000, 0x030000, 0x070000, 0x0a0000,
     0x0e0000, 0x110000, 0x150000, 0x180000,
     0x1c0000, 0x1f0000, 0x230000, 0x260000,
@@ -764,7 +760,7 @@ centres_y = np.array((
     1990.73901, 1948.36438, 1973.94824
 ))
 
-nearestNeighbours = np.array((
+nearest_neighbours = np.array((
         (    35,   143,   100,     1,   101,   142),
         (   143,     2,    16,     0,   149,    35),
         (     1,     3,   149,     6,    16,    15),
@@ -2360,7 +2356,7 @@ nearestNeighbours = np.array((
         (  1586,   401,   134,  1591,   400,   133)
            ))
 
-nearestNeighbourDistances = np.array((
+nearest_neighbour_distances = np.array((
     (4.92701659e+01, 4.98875084e+01, 4.99114563e+01, 5.07221722e+01, 5.62935322e+01, 6.47592856e+01),
 	(4.97412578e+01, 5.00583678e+01, 5.03822779e+01, 5.07221722e+01, 5.16696599e+01, 6.50766354e+01),
 	(5.00583678e+01, 5.01438874e+01, 5.07798471e+01, 5.32116209e+01, 5.38358623e+01, 5.57519627e+01),
