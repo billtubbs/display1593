@@ -10,7 +10,6 @@ the true (wrap-around) LED adjacency.
 
 import argparse
 import logging
-import logging.handlers
 import sys
 import time
 from pathlib import Path
@@ -19,6 +18,7 @@ from random import shuffle
 import numpy as np
 
 from display1593 import Display1593
+from display1593.logging_utils import configure_root_logging
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,7 +28,10 @@ if str(SRC_DIR) not in sys.path:
 
 COLOURS = [
     (46, 23, 0),
-    (0, 46, 0),
+    (4, 16, 3),  # dark forest green - pure (0, 46, 0) reads much
+                 # brighter than the other colours here, since the eye
+                 # (and typical RGB LEDs) are far more sensitive to
+                 # green than red or blue for the same raw value
     (23, 23, 23),
     (0, 0, 46),
     (29, 15, 8),
@@ -42,23 +45,8 @@ THRESHOLD_VALUES = [0.35]
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
-LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
 
-if not logger.handlers:
-    handler = logging.handlers.RotatingFileHandler(
-        LOG_PATH,
-        maxBytes=256 * 1024,
-        backupCount=2,
-    )
-    handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-
-logging.basicConfig(
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-    format=LOG_FORMAT,
-)
+configure_root_logging(LOG_PATH)
 
 
 def is_happy(like_neighbours, n_neighbours, threshold):

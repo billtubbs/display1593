@@ -51,7 +51,6 @@ repainted for the new time.
 """
 
 import logging
-import logging.handlers
 import pickle
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +58,7 @@ from pathlib import Path
 import numpy as np
 
 from display1593 import Display1593
+from display1593.logging_utils import configure_root_logging
 
 logger = logging.getLogger(__name__)
 
@@ -67,23 +67,7 @@ PICKLE_PATH = BASE_DIR / "digdata.pickle"
 LOG_PATH = BASE_DIR / "digclock.log"
 N_LEDS = 1593
 
-LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
-
-if not logger.handlers:
-    handler = logging.handlers.RotatingFileHandler(
-        LOG_PATH,
-        maxBytes=256 * 1024,
-        backupCount=2,
-    )
-    handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-
-logging.basicConfig(
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-    format=LOG_FORMAT,
-)
+configure_root_logging(LOG_PATH)
 
 # Which segments (0-6) are lit to display each digit value, 0-9.
 # Key 10 (segment 7) is used by the colon dots, not a digit value.

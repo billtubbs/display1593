@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -38,17 +37,9 @@ int32_array_1d = types.Array(types.int32, 1, "C")
 uint8_array_2d = types.Array(types.uint8, 2, "C")
 
 
-# Set up logging
+# Log records are handled by whichever entry-point script imports this
+# module - see display1593.logging_utils.configure_root_logging().
 logger = logging.getLogger(__name__)
-LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
-filename = os.path.basename(__file__)
-os.path.splitext(os.path.basename(__file__))
-logging.basicConfig(
-    filename=os.path.splitext(filename)[0] + ".log",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-    format=LOG_FORMAT,
-)
 
 COMMAND_LC = np.array(list(b"LC"), dtype=np.uint8)  # implemented
 COMMAND_SN = np.array(list(b"SN"), dtype=np.uint8)
