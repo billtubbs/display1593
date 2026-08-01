@@ -68,7 +68,7 @@ def is_happy(like_neighbours, n_neighbours, threshold):
     return (float(like_neighbours) / n_neighbours) >= threshold
 
 
-NOMINAL_NEIGHBOUR_DISTANCE = 5.0
+NOMINAL_NEIGHBOUR_DISTANCE = 50.0
 
 
 def is_happy_weighted(like_neighbour_mask, distances, threshold):
@@ -113,7 +113,9 @@ class Agent:
         """Return whether the agent is happy with its current neighbours."""
         if self.is_happy is is_happy_weighted:
             return self.is_happy(
-                self.like_neighbour_mask, self.neighbour_distances, self.threshold
+                self.like_neighbour_mask,
+                self.neighbour_distances,
+                self.threshold,
             )
         return self.is_happy(
             self.like_neighbours, self.n_neighbours, self.threshold
@@ -416,9 +418,9 @@ def main():
 
             # Randomly assign population and model parameters
             # Number of population groups
-            #p = [0.5, 0.4, 0.1]
-            #n_values = [2, 3, 4]
-            #n_groups = np.random.choice(n_values, p=p)
+            # p = [0.5, 0.4, 0.1]
+            # n_values = [2, 3, 4]
+            # n_groups = np.random.choice(n_values, p=p)
             n_groups = 2
 
             # Number of neighbours in happiness calculation
