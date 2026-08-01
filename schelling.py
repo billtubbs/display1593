@@ -19,6 +19,7 @@ from scipy.spatial import KDTree
 
 from display1593 import Display1593
 
+
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
@@ -55,10 +56,38 @@ logging.basicConfig(
 )
 
 
+def is_happy(like_neighbours, n_neighbours, threshold):
+    """Return whether like_neighbours / n_neighbours meets threshold.
+
+    This is the standard (unweighted) Schelling happiness rule.
+    """
+    return (float(like_neighbours) / n_neighbours) >= threshold
+
+
+NOMINAL_NEIGHBOUR_DISTANCE = 5.0
+
+
+def is_happy_weighted(like_neighbour_mask, distances, threshold):
+    """Return whether an inverse-distance-weighted proximity score meets threshold.
+
+    ``like_neighbour_mask`` is a boolean array indicating which neighbours
+    (given in the same order as ``distances``) belong to the same group as
+    the agent. Each neighbour's contribution to the proximity score is
+    weighted by ``NOMINAL_NEIGHBOUR_DISTANCE / distance``, so a neighbour at
+    the nominal distance contributes a weight of 1.0, closer neighbours are
+    weighted more heavily, and farther ones less.
+    """
+    like_neighbour_mask = np.asarray(like_neighbour_mask, dtype=bool)
+    distances = np.asarray(distances, dtype=float)
+    weights = NOMINAL_NEIGHBOUR_DISTANCE / distances
+    score = weights[like_neighbour_mask].sum() / weights.sum()
+    return score >= threshold
+
+
 class Agent:
     """Represent one agent in the Schelling segregation model."""
 
-    def __init__(self, population, group, threshold, id_):
+    def __init__(self, population, group, threshold, id_, is_happy=is_happy):
 
         self.population = population
         self.group = group
@@ -72,12 +101,13 @@ class Agent:
         self.n_neighbours = self.population.n_neighbours
         self.like_neighbours = 0
         self.neighbour_ids = []
+        self.is_happy = is_happy
 
     def happy(self):
         """Return whether the agent is happy with its current neighbours."""
-
-        h = (float(self.like_neighbours) / self.n_neighbours) >= self.threshold
-        return h
+        return self.is_happy(
+            self.like_neighbours, self.n_neighbours, self.threshold
+        )
 
     def move(self, show=True):
         """Move the agent to a random empty location."""
@@ -165,7 +195,13 @@ class Population:
         )
 
         self.agents = [
-            Agent(self, group, thresholds[group], agent_id)
+            Agent(
+                self,
+                group,
+                thresholds[group],
+                agent_id,
+                is_happy=is_happy_weighted,
+            )
             for group, agent_id in zip(groups, agent_ids)
         ]
 
