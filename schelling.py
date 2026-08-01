@@ -20,7 +20,6 @@ import numpy as np
 from display1593 import Display1593
 from display1593.logging_utils import configure_root_logging
 
-
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:

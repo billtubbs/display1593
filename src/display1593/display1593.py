@@ -224,7 +224,9 @@ class Display1593:
     ):
         self.ports = ports
         self.baud_rate = baud_rate
-        self._lock = DisplayLock() if lock_path is None else DisplayLock(lock_path)
+        self._lock = (
+            DisplayLock() if lock_path is None else DisplayLock(lock_path)
+        )
         self.board_names = list(number_of_leds.keys())
         self.leds_per_board = np.fromiter(
             number_of_leds.values(), dtype="int32"
@@ -290,14 +292,19 @@ class Display1593:
                         message = f"unrecognized board name {message!r}"
                     logger.warning(
                         "Attempt %d/%d on port %s failed: %s",
-                        attempt, max_attempts, port, message,
+                        attempt,
+                        max_attempts,
+                        port,
+                        message,
                     )
                     ser.close()
                 else:
                     logger.error(
                         "Giving up on port %s after %d attempts "
                         "(last error: %s).",
-                        port, max_attempts, message,
+                        port,
+                        max_attempts,
+                        message,
                     )
                     raise Exception(
                         f"No microcontroller found on port {port} after "

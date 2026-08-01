@@ -96,7 +96,8 @@ def test_is_happy_weighted_matches_is_happy_at_nominal_distance():
 
     for like_neighbours in range(n_neighbours + 1):
         mask = np.array(
-            [True] * like_neighbours + [False] * (n_neighbours - like_neighbours)
+            [True] * like_neighbours
+            + [False] * (n_neighbours - like_neighbours)
         )
 
         assert is_happy_weighted(mask, distances, threshold) == is_happy(
@@ -112,7 +113,9 @@ def test_is_happy_weighted_can_pass_where_is_happy_fails_for_close_neighbours():
     # more heavily than the 6 unlike neighbours at nominal distance.
     near = NOMINAL_NEIGHBOUR_DISTANCE / 2
     nominal = NOMINAL_NEIGHBOUR_DISTANCE
-    distances = np.array([near, near, nominal, nominal, nominal, nominal, nominal, nominal])
+    distances = np.array(
+        [near, near, nominal, nominal, nominal, nominal, nominal, nominal]
+    )
     mean_distance = distances.mean()
 
     assert mean_distance < NOMINAL_NEIGHBOUR_DISTANCE
@@ -128,7 +131,9 @@ def test_is_happy_weighted_can_fail_where_is_happy_passes_for_distant_neighbours
     # less heavily than the 5 unlike neighbours at nominal distance.
     far = NOMINAL_NEIGHBOUR_DISTANCE * 2
     nominal = NOMINAL_NEIGHBOUR_DISTANCE
-    distances = np.array([far, far, far, nominal, nominal, nominal, nominal, nominal])
+    distances = np.array(
+        [far, far, far, nominal, nominal, nominal, nominal, nominal]
+    )
     mean_distance = distances.mean()
 
     assert mean_distance > NOMINAL_NEIGHBOUR_DISTANCE
