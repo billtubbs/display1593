@@ -35,6 +35,10 @@ COLOURS = [
     (25, 0, 0),
 ]
 
+# Happiness threshold values to sample from
+# THRESHOLD_VALUES = [0.25, 0.35, 0.5]
+THRESHOLD_VALUES = [0.35]
+
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
 LOG_FORMAT = "%(asctime)s.%(msecs)03d|%(levelname)s|%(name)s|%(message)s"
@@ -407,7 +411,7 @@ def main():
             n_neighbours = 9
 
             # Happiness thresholds
-            thresholds = np.random.choice([0.25, 0.35, 0.5], size=n_groups)
+            thresholds = np.random.choice(THRESHOLD_VALUES, size=n_groups)
 
             # Number of agents
             n_agents = dis.n_leds - (100 + n_groups * 100)
