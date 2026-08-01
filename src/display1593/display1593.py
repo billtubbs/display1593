@@ -15,7 +15,7 @@ from serial_comm import (
 
 from display1593.data.ledArray_data_1593 import centres_x, centres_y
 from display1593.lock import DEFAULT_TIMEOUT as DEFAULT_LOCK_TIMEOUT
-from display1593.lock import DisplayLock
+from display1593.lock import DisplayLock, DisplayLockTimeout
 
 # The nearest_neighbours/nearest_neighbour_distances arrays in
 # ledArray_data_1593.py contain indexing errors for LEDs near the edges
@@ -266,7 +266,15 @@ class Display1593:
         # the display; raises DisplayLockTimeout if another process is
         # still holding it. Released in disconnect(), or below if
         # connecting fails partway.
-        self._lock.acquire(timeout=lock_timeout)
+        try:
+            self._lock.acquire(timeout=lock_timeout)
+        except DisplayLockTimeout:
+            logger.warning(
+                "Could not connect: display is locked by another "
+                "process (waited %.1fs).",
+                lock_timeout,
+            )
+            raise
         try:
             connections = {}
             for port in self.ports:
@@ -295,6 +303,11 @@ class Display1593:
                     )
                     ser.close()
                 else:
+                    logger.error(
+                        "Giving up on port %s after %d attempts "
+                        "(last error: %s).",
+                        port, max_attempts, message,
+                    )
                     raise Exception(
                         f"No microcontroller found on port {port} after "
                         f"{max_attempts} attempts (last error: {message})"
