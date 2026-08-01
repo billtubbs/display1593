@@ -790,6 +790,30 @@ def compute_nearest_neighbours(
     return indices[:, 1:], distances[:, 1:]
 
 
+# KNOWN BUG: the nearest_neighbours and nearest_neighbour_distances
+# arrays below have incorrect LED ids in ~164 of their 1593 rows -
+# specifically for LEDs within about one LED-spacing of the edge of the
+# array. The display tiles infinitely (period = width x height), so
+# edge LEDs can have true nearest neighbours across the wrap-around
+# boundary; the original C++/Python generator used a "ghost cell"
+# approach to find these (see cellspacing.py / sequenceOfXYExtended in
+# the old led-display-project repo), but a bug in mapping the ghost
+# cell ids back to real LED ids meant the wrong LED id got recorded for
+# these wrap-around neighbours - even though the recorded *distance*
+# for that neighbour is correct (it matches the true nearest LED, just
+# labelled with the wrong id). Confirmed by recomputing neighbours with
+# a periodic KDTree (see compute_nearest_neighbours() above): distances
+# match this static data exactly for all 1593 LEDs, but indices differ
+# for the ~164 edge-adjacent rows.
+#
+# Corrected data (regenerated with compute_nearest_neighbours(), and
+# visually verified LED-by-LED on the real display) is stored in:
+#   data/nearest_neighbours_1593.csv
+#   data/nearest_neighbour_distances_1593.csv
+# display1593.py loads the corrected CSV data rather than the arrays
+# below. These static arrays are being kept for reference only and
+# will be deleted in a future commit.
+
 nearest_neighbours = np.array((
         (    35,   143,   100,     1,   101,   142),
         (   143,     2,    16,     0,   149,    35),
@@ -2385,6 +2409,11 @@ nearest_neighbours = np.array((
         (  1590,  1586,  1588,  1587,  1592,   401),
         (  1586,   401,   134,  1591,   400,   133)
            ))
+
+# See the KNOWN BUG comment above nearest_neighbours: the LED ids in
+# that array are wrong for ~164 rows near the array's edges (the
+# distances below are still correct even for those rows). Corrected
+# data is in data/nearest_neighbour_distances_1593.csv.
 
 nearest_neighbour_distances = np.array((
     (4.92701659e+01, 4.98875084e+01, 4.99114563e+01, 5.07221722e+01, 5.62935322e+01, 6.47592856e+01),

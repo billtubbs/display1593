@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from itertools import pairwise
+from pathlib import Path
 
 import numpy as np
 import serial
@@ -12,11 +13,19 @@ from serial_comm import (
     send_data_to_arduino,
 )
 
-from display1593.data.ledArray_data_1593 import (
-    centres_x,
-    centres_y,
-    nearest_neighbour_distances,
-    nearest_neighbours,
+from display1593.data.ledArray_data_1593 import centres_x, centres_y
+
+# The nearest_neighbours/nearest_neighbour_distances arrays in
+# ledArray_data_1593.py contain indexing errors for LEDs near the edges
+# of the array (see the comment above those arrays for details), so the
+# corrected data is loaded here from CSV files instead. These were
+# generated with compute_nearest_neighbours() in ledArray_data_1593.py.
+_DATA_DIR = Path(__file__).parent / "data"
+nearest_neighbours = np.loadtxt(
+    _DATA_DIR / "nearest_neighbours_1593.csv", delimiter=",", dtype=np.uint16
+)
+nearest_neighbour_distances = np.loadtxt(
+    _DATA_DIR / "nearest_neighbour_distances_1593.csv", delimiter=","
 )
 
 # Numba array types
