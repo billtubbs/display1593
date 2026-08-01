@@ -37,7 +37,7 @@ COLOURS = [
 
 # Happiness threshold values to sample from
 # THRESHOLD_VALUES = [0.25, 0.35, 0.5]
-THRESHOLD_VALUES = [0.5]
+THRESHOLD_VALUES = [0.333]
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
@@ -451,7 +451,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n-neighbours",
         type=int,
-        default=12,
+        default=18,
         help="number of nearest neighbours used in the happiness "
         "calculation (e.g. 6 or 18; default: 12)",
     )
