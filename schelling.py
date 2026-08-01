@@ -37,7 +37,7 @@ COLOURS = [
 
 # Happiness threshold values to sample from
 # THRESHOLD_VALUES = [0.25, 0.35, 0.5]
-THRESHOLD_VALUES = [0.35]
+THRESHOLD_VALUES = [0.5]
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
