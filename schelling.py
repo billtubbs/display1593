@@ -53,13 +53,6 @@ def is_happy(like_neighbours, n_neighbours, threshold):
     return (float(like_neighbours) / n_neighbours) >= threshold
 
 
-# Derived so that a fully-occupied, fully-in-group 18-neighbour hexagonal
-# neighbourhood (6 at spacing d, 6 at d*sqrt(3), 6 at 2d, with d = 50, the
-# nominal LED spacing) scores exactly 1.0:
-#   X = 3d / (3/2 + 1/sqrt(3))
-NOMINAL_NEIGHBOUR_DISTANCE = 72.20737023733363
-
-
 def is_happy_weighted(like_neighbour_mask, distances, threshold):
     """Return whether an inverse-distance-weighted proximity score meets threshold.
 
@@ -69,22 +62,20 @@ def is_happy_weighted(like_neighbour_mask, distances, threshold):
     are excluded entirely, not counted as unlike), so an agent with no
     occupied neighbours is considered happy by default.
 
-    Each neighbour's contribution to the proximity score is weighted by
-    ``NOMINAL_NEIGHBOUR_DISTANCE / distance``, so a neighbour at the
-    nominal distance contributes a weight of 1.0, closer neighbours are
-    weighted more heavily, and farther ones less. The weighted
-    contributions of like neighbours are summed and divided by the actual
-    number of occupied neighbours (not the sum of all weights), so the
-    score is directly comparable to the plain ``is_happy`` fraction, and
-    the absolute value of ``NOMINAL_NEIGHBOUR_DISTANCE`` actually affects
-    the result.
+    The score is the fraction of total neighbourly "influence" (each
+    neighbour weighted by 1/distance, so closer neighbours count more)
+    that comes from same-group neighbours. This is always in [0, 1]: a
+    neighbourhood that is 100% same-group scores exactly 1.0 regardless
+    of distances, and a close out-of-group neighbour dilutes the score
+    more than a distant one, same as close same-group neighbours boost
+    it more than distant ones.
     """
     like_neighbour_mask = np.asarray(like_neighbour_mask, dtype=bool)
     distances = np.asarray(distances, dtype=float)
     if len(distances) == 0:
         return True
-    weights = NOMINAL_NEIGHBOUR_DISTANCE / distances
-    score = weights[like_neighbour_mask].sum() / len(weights)
+    weights = 1 / distances
+    score = weights[like_neighbour_mask].sum() / weights.sum()
     return score >= threshold
 
 

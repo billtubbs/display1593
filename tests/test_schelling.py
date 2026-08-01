@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from schelling import (
-    NOMINAL_NEIGHBOUR_DISTANCE,
     Population,
     is_happy,
     is_happy_weighted,
@@ -89,10 +88,10 @@ def test_population_uses_full_led_range():
     assert len(population.empty_spaces) == 1593 - 1
 
 
-def test_is_happy_weighted_matches_is_happy_at_nominal_distance():
+def test_is_happy_weighted_matches_is_happy_at_equal_distances():
     n_neighbours = 8
     threshold = 0.35
-    distances = np.full(n_neighbours, NOMINAL_NEIGHBOUR_DISTANCE)
+    distances = np.full(n_neighbours, 50.0)
 
     for like_neighbours in range(n_neighbours + 1):
         mask = np.array(
@@ -109,16 +108,11 @@ def test_is_happy_weighted_can_pass_where_is_happy_fails_for_close_neighbours():
     # 2 of 8 like neighbours: unweighted fraction is 0.25, below threshold.
     threshold = 0.35
     mask = np.array([True, True, False, False, False, False, False, False])
-    # The 2 like neighbours are closer than nominal, so they are weighted
-    # more heavily than the 6 unlike neighbours at nominal distance.
-    near = NOMINAL_NEIGHBOUR_DISTANCE / 2
-    nominal = NOMINAL_NEIGHBOUR_DISTANCE
-    distances = np.array(
-        [near, near, nominal, nominal, nominal, nominal, nominal, nominal]
-    )
-    mean_distance = distances.mean()
+    # The 2 like neighbours are much closer than the other 6, so they are
+    # weighted more heavily.
+    near, far = 5.0, 50.0
+    distances = np.array([near, near, far, far, far, far, far, far])
 
-    assert mean_distance < NOMINAL_NEIGHBOUR_DISTANCE
     assert not is_happy(2, 8, threshold)
     assert is_happy_weighted(mask, distances, threshold)
 
@@ -127,16 +121,11 @@ def test_is_happy_weighted_can_fail_where_is_happy_passes_for_distant_neighbours
     # 3 of 8 like neighbours: unweighted fraction is 0.375, above threshold.
     threshold = 0.35
     mask = np.array([True, True, True, False, False, False, False, False])
-    # The 3 like neighbours are farther than nominal, so they are weighted
-    # less heavily than the 5 unlike neighbours at nominal distance.
-    far = NOMINAL_NEIGHBOUR_DISTANCE * 2
-    nominal = NOMINAL_NEIGHBOUR_DISTANCE
-    distances = np.array(
-        [far, far, far, nominal, nominal, nominal, nominal, nominal]
-    )
-    mean_distance = distances.mean()
+    # The 3 like neighbours are much farther than the other 5, so they are
+    # weighted less heavily.
+    far, near = 200.0, 50.0
+    distances = np.array([far, far, far, near, near, near, near, near])
 
-    assert mean_distance > NOMINAL_NEIGHBOUR_DISTANCE
     assert is_happy(3, 8, threshold)
     assert not is_happy_weighted(mask, distances, threshold)
 
