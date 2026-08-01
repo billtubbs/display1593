@@ -14,6 +14,7 @@ from serial_comm import (
 )
 
 from display1593.data.ledArray_data_1593 import centres_x, centres_y
+from display1593.lock import DisplayLock
 
 # The nearest_neighbours/nearest_neighbour_distances arrays in
 # ledArray_data_1593.py contain indexing errors for LEDs near the edges
@@ -227,9 +228,11 @@ class Display1593:
         ports=SERIAL_PORTS,
         baud_rate=BAUD_RATE,
         number_of_leds=NUMBER_OF_LEDS,
+        lock_path=None,
     ):
         self.ports = ports
         self.baud_rate = baud_rate
+        self._lock = DisplayLock() if lock_path is None else DisplayLock(lock_path)
         self.board_names = list(number_of_leds.keys())
         self.leds_per_board = np.fromiter(
             number_of_leds.values(), dtype="int32"
@@ -258,40 +261,57 @@ class Display1593:
         )
 
     def connect(self, max_attempts=3):
-        connections = {}
-        for port in self.ports:
-            for attempt in range(1, max_attempts + 1):
-                ser = serial.Serial(port, baudrate=self.baud_rate)
-                status, message = connect_to_arduino(
-                    ser, expected_names=self.board_names
-                )
-                if status == 0:
-                    logger.info("Connected to port %s.", port)
-                    worker_name = message
-                    break
-                logger.warning(
-                    "Attempt %d/%d on port %s failed: %s",
-                    attempt, max_attempts, port, message,
-                )
-                ser.close()
-            else:
-                raise Exception(
-                    f"No microcontroller found on port {port} after "
-                    f"{max_attempts} attempts (last error: {message})"
-                )
-            logger.info("Hello from: %s", worker_name)
-            connections[worker_name] = ser
+        # Block here until no other process is controlling the display.
+        # Released in disconnect(), or below if connecting fails partway.
+        self._lock.acquire()
+        try:
+            connections = {}
+            for port in self.ports:
+                for attempt in range(1, max_attempts + 1):
+                    ser = serial.Serial(port, baudrate=self.baud_rate)
+                    # connect_to_arduino() has no checksum on the hello
+                    # message it waits for (see check_response() for the
+                    # checksummed alternative used elsewhere), so a
+                    # corrupted byte can produce a malformed message (an
+                    # AssertionError) or a name we don't recognize. Either
+                    # way, treat it as a failed attempt and retry rather
+                    # than trusting it or crashing.
+                    try:
+                        status, message = connect_to_arduino(ser)
+                    except AssertionError:
+                        status, message = 2, "Malformed hello message"
+                    if status == 0 and message in self.board_names:
+                        logger.info("Connected to port %s.", port)
+                        worker_name = message
+                        break
+                    if status == 0:
+                        message = f"unrecognized board name {message!r}"
+                    logger.warning(
+                        "Attempt %d/%d on port %s failed: %s",
+                        attempt, max_attempts, port, message,
+                    )
+                    ser.close()
+                else:
+                    raise Exception(
+                        f"No microcontroller found on port {port} after "
+                        f"{max_attempts} attempts (last error: {message})"
+                    )
+                logger.info("Hello from: %s", worker_name)
+                connections[worker_name] = ser
 
-        if set(connections.keys()) != set(self.board_names):
-            raise ValueError(
-                "board name mismatch, expected %s, got %s"
-                % (self.board_names, list(connections.keys()))
-            )
+            if set(connections.keys()) != set(self.board_names):
+                raise ValueError(
+                    "board name mismatch, expected %s, got %s"
+                    % (self.board_names, list(connections.keys()))
+                )
 
-        # Store connections in same order as expected board names
-        self._connections = []
-        for name in self.board_names:
-            self._connections.append(connections[name])
+            # Store connections in same order as expected board names
+            self._connections = []
+            for name in self.board_names:
+                self._connections.append(connections[name])
+        except Exception:
+            self._lock.release()
+            raise
 
     def check_response(self, ser, cmd, timeout_after=1):
         expected_response = calc_expected_response(cmd)
@@ -434,6 +454,7 @@ class Display1593:
             ser = self._connections.pop()
             ser.close()
             logger.info("Closed connection to %s.", ser.port)
+        self._lock.release()
 
     def __enter__(self):
         """Enter context manager method"""
