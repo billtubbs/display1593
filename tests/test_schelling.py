@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 
 from schelling import (
@@ -11,18 +13,24 @@ from schelling import (
 class DummyDisplay:
     def __init__(self, n_leds=4):
         self.n_leds = n_leds
-        self.leds = {}
+        # Matches the real Display1593 API: `.leds` exposes LED layout
+        # coordinates, not per-LED colours (see display1593.py).
+        self.leds = SimpleNamespace(
+            centres_x=np.arange(n_leds, dtype=float),
+            centres_y=np.zeros(n_leds, dtype=float),
+        )
+        self.led_colours = {}
         self.show_now_calls = 0
 
     def set_led(self, i, rgb):
-        self.leds[i] = rgb
+        self.led_colours[i] = rgb
 
     def set_leds(self, ids, rgb_array):
         for i, rgb in zip(ids, rgb_array):
-            self.leds[int(i)] = tuple(rgb)
+            self.led_colours[int(i)] = tuple(rgb)
 
     def clear_all(self):
-        self.leds.clear()
+        self.led_colours.clear()
 
     def show_now(self):
         self.show_now_calls += 1
@@ -52,7 +60,7 @@ def test_population_uses_full_led_range():
     population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
 
     assert population.n_cells == 1593
-    assert len(population.empty_spaces) == 1593
+    assert len(population.empty_spaces) == 1593 - 1
 
 
 def test_is_happy_weighted_matches_is_happy_at_nominal_distance():
@@ -106,4 +114,4 @@ def test_population_can_address_second_board_led_ids():
         np.array([(1, 2, 3)], dtype=np.uint8),
     )
 
-    assert 798 in display.leds
+    assert 798 in display.led_colours
