@@ -7,6 +7,7 @@ API does not expose the older LED geometry helpers, the model uses a simple
 2D coordinate map derived from the LED index for neighbour calculations.
 """
 
+import argparse
 import logging
 import logging.handlers
 import sys
@@ -172,7 +173,7 @@ class Population:
         n,
         probs,
         thresholds,
-        n_neighbours=9,
+        n_neighbours=12,
         cols=None,
         background_col=(0, 0, 0),
     ):
@@ -407,8 +408,15 @@ class Population:
         self.display.show_now()
 
 
-def main():
-    """Run the Schelling simulation loop until interrupted."""
+def main(n_neighbours=12):
+    """Run the Schelling simulation loop until interrupted.
+
+    n_neighbours: number of nearest neighbours used in each agent's
+        happiness calculation. For the display's roughly hexagonal LED
+        packing, 6 is the first shell of nearest neighbours and 18 is
+        the first two shells (i.e. everything within twice the nearest-
+        neighbour distance).
+    """
 
     logger.info("\n\n------- Schelling Segregation Model Simulation -------\n")
 
@@ -426,9 +434,6 @@ def main():
             # n_values = [2, 3, 4]
             # n_groups = np.random.choice(n_values, p=p)
             n_groups = 2
-
-            # Number of neighbours in happiness calculation
-            n_neighbours = 9
 
             # Happiness thresholds
             thresholds = np.random.choice(THRESHOLD_VALUES, size=n_groups)
@@ -495,4 +500,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--n-neighbours",
+        type=int,
+        default=12,
+        help="number of nearest neighbours used in the happiness "
+        "calculation (e.g. 6 or 18; default: 12)",
+    )
+    args = parser.parse_args()
+    main(n_neighbours=args.n_neighbours)
