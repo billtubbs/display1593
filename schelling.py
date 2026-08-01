@@ -105,10 +105,16 @@ class Agent:
         self.n_neighbours = self.population.n_neighbours
         self.like_neighbours = 0
         self.neighbour_ids = []
+        self.neighbour_distances = np.array([], dtype=float)
+        self.like_neighbour_mask = np.array([], dtype=bool)
         self.is_happy = is_happy
 
     def happy(self):
         """Return whether the agent is happy with its current neighbours."""
+        if self.is_happy is is_happy_weighted:
+            return self.is_happy(
+                self.like_neighbour_mask, self.neighbour_distances, self.threshold
+            )
         return self.is_happy(
             self.like_neighbours, self.n_neighbours, self.threshold
         )
@@ -214,13 +220,11 @@ class Population:
     def count_like_neighbours(self, agent):
 
         assert len(agent.neighbour_ids) == self.n_neighbours
-        tally = dict.fromkeys(range(self.n_groups), 0)
-
-        for n in agent.neighbour_ids:
-            n_grp = self.agents[n].group
-            tally[n_grp] = tally.get(n_grp, 0) + 1
-
-        agent.like_neighbours = tally[agent.group]
+        neighbour_groups = np.array(
+            [self.agents[n].group for n in agent.neighbour_ids]
+        )
+        agent.like_neighbour_mask = neighbour_groups == agent.group
+        agent.like_neighbours = int(agent.like_neighbour_mask.sum())
 
     def update_all_agents(self):
         """Advance the population by one update round.
@@ -253,7 +257,9 @@ class Population:
             # indeces of the nearest neighbours. Here, we ignore the
             # first row as this is the location of the current agent.
             k = self.n_neighbours + 1
-            agent.neighbour_ids = tree.query(agent.location, k=k)[1][1:]
+            distances, ids = tree.query(agent.location, k=k)
+            agent.neighbour_distances = distances[1:]
+            agent.neighbour_ids = ids[1:]
 
             # logging.info("Agent's neighbours: %s", str(agent.neighbour_ids))
             self.count_like_neighbours(agent)
@@ -275,7 +281,9 @@ class Population:
                     any_moved = True
 
                     k = self.n_neighbours
-                    agent.neighbour_ids = tree.query(agent.location, k=k)[1]
+                    distances, ids = tree.query(agent.location, k=k)
+                    agent.neighbour_distances = distances
+                    agent.neighbour_ids = ids
 
                     # Because the current agent's location was not in the list
                     # of points provided to KDTree, need to increment all
@@ -322,7 +330,9 @@ class Population:
         for step in range(n):
             i = (self.last_agent + 1 + step) % n
             agent = self.agents[i]
-            agent.neighbour_ids = tree.query(agent.location, k=k)[1][1:]
+            distances, ids = tree.query(agent.location, k=k)
+            agent.neighbour_distances = distances[1:]
+            agent.neighbour_ids = ids[1:]
             self.count_like_neighbours(agent)
 
             if agent.happy():
@@ -335,9 +345,11 @@ class Population:
             while not agent.happy():
                 agent.move(show=False)
 
-                agent.neighbour_ids = move_tree.query(
+                distances, ids = move_tree.query(
                     agent.location, k=self.n_neighbours
-                )[1]
+                )
+                agent.neighbour_distances = distances
+                agent.neighbour_ids = ids
                 for j, neighbour_id in enumerate(agent.neighbour_ids):
                     if neighbour_id > i:
                         agent.neighbour_ids[j] += 1
