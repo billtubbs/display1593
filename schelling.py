@@ -79,12 +79,16 @@ def is_happy_weighted(like_neighbour_mask, distances, threshold):
     the agent. Each neighbour's contribution to the proximity score is
     weighted by ``NOMINAL_NEIGHBOUR_DISTANCE / distance``, so a neighbour at
     the nominal distance contributes a weight of 1.0, closer neighbours are
-    weighted more heavily, and farther ones less.
+    weighted more heavily, and farther ones less. The weighted contributions
+    of like neighbours are summed and divided by the total number of
+    neighbours (not the sum of all weights), so the score is directly
+    comparable to the plain ``is_happy`` fraction, and the absolute value of
+    ``NOMINAL_NEIGHBOUR_DISTANCE`` actually affects the result.
     """
     like_neighbour_mask = np.asarray(like_neighbour_mask, dtype=bool)
     distances = np.asarray(distances, dtype=float)
     weights = NOMINAL_NEIGHBOUR_DISTANCE / distances
-    score = weights[like_neighbour_mask].sum() / weights.sum()
+    score = weights[like_neighbour_mask].sum() / len(weights)
     return score >= threshold
 
 
