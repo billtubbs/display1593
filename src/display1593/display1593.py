@@ -257,17 +257,28 @@ class Display1593:
             self.nearest_neighbour_distances
         )
 
-    def connect(self):
+    def connect(self, max_attempts=3):
         connections = {}
         for port in self.ports:
-            ser = serial.Serial(port, baudrate=self.baud_rate)
-            status, message = connect_to_arduino(ser)
-            if status == 0:
-                logger.info("Connected to port %s.", port)
-                worker_name = message
+            for attempt in range(1, max_attempts + 1):
+                ser = serial.Serial(port, baudrate=self.baud_rate)
+                status, message = connect_to_arduino(
+                    ser, expected_names=self.board_names
+                )
+                if status == 0:
+                    logger.info("Connected to port %s.", port)
+                    worker_name = message
+                    break
+                logger.warning(
+                    "Attempt %d/%d on port %s failed: %s",
+                    attempt, max_attempts, port, message,
+                )
+                ser.close()
             else:
-                logger.debug("Connection to port %s failed.", port)
-                raise Exception(message)
+                raise Exception(
+                    f"No microcontroller found on port {port} after "
+                    f"{max_attempts} attempts (last error: {message})"
+                )
             logger.info("Hello from: %s", worker_name)
             connections[worker_name] = ser
 

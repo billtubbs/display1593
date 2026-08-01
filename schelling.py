@@ -1,10 +1,11 @@
 #!/usr/bin/python
 """Run a Schelling segregation simulation on the 1593-LED display.
 
-The script keeps the original simulation behaviour, but it uses the newer
-Display1593 API rather than the legacy display wrapper.  Because the newer
-API does not expose the older LED geometry helpers, the model uses a simple
-2D coordinate map derived from the LED index for neighbour calculations.
+Each agent lives at a specific LED cell. Neighbour look-ups use the
+display's precomputed nearest_neighbours table (a periodic KDTree over
+the real LED layout, see ledArray_data_1593.py), rather than building a
+KDTree over agent positions at runtime - this is both faster and models
+the true (wrap-around) LED adjacency.
 """
 
 import argparse
@@ -16,7 +17,6 @@ from pathlib import Path
 from random import shuffle
 
 import numpy as np
-from scipy.spatial import KDTree
 
 from display1593 import Display1593
 
@@ -69,7 +69,11 @@ def is_happy(like_neighbours, n_neighbours, threshold):
     return (float(like_neighbours) / n_neighbours) >= threshold
 
 
-NOMINAL_NEIGHBOUR_DISTANCE = 50.0
+# Derived so that a fully-occupied, fully-in-group 18-neighbour hexagonal
+# neighbourhood (6 at spacing d, 6 at d*sqrt(3), 6 at 2d, with d = 50, the
+# nominal LED spacing) scores exactly 1.0:
+#   X = 3d / (3/2 + 1/sqrt(3))
+NOMINAL_NEIGHBOUR_DISTANCE = 72.20737023733363
 
 
 def is_happy_weighted(like_neighbour_mask, distances, threshold):
@@ -77,17 +81,24 @@ def is_happy_weighted(like_neighbour_mask, distances, threshold):
 
     ``like_neighbour_mask`` is a boolean array indicating which neighbours
     (given in the same order as ``distances``) belong to the same group as
-    the agent. Each neighbour's contribution to the proximity score is
-    weighted by ``NOMINAL_NEIGHBOUR_DISTANCE / distance``, so a neighbour at
-    the nominal distance contributes a weight of 1.0, closer neighbours are
-    weighted more heavily, and farther ones less. The weighted contributions
-    of like neighbours are summed and divided by the total number of
-    neighbours (not the sum of all weights), so the score is directly
-    comparable to the plain ``is_happy`` fraction, and the absolute value of
-    ``NOMINAL_NEIGHBOUR_DISTANCE`` actually affects the result.
+    the agent. Only occupied neighbour cells are passed in (empty cells
+    are excluded entirely, not counted as unlike), so an agent with no
+    occupied neighbours is considered happy by default.
+
+    Each neighbour's contribution to the proximity score is weighted by
+    ``NOMINAL_NEIGHBOUR_DISTANCE / distance``, so a neighbour at the
+    nominal distance contributes a weight of 1.0, closer neighbours are
+    weighted more heavily, and farther ones less. The weighted
+    contributions of like neighbours are summed and divided by the actual
+    number of occupied neighbours (not the sum of all weights), so the
+    score is directly comparable to the plain ``is_happy`` fraction, and
+    the absolute value of ``NOMINAL_NEIGHBOUR_DISTANCE`` actually affects
+    the result.
     """
     like_neighbour_mask = np.asarray(like_neighbour_mask, dtype=bool)
     distances = np.asarray(distances, dtype=float)
+    if len(distances) == 0:
+        return True
     weights = NOMINAL_NEIGHBOUR_DISTANCE / distances
     score = weights[like_neighbour_mask].sum() / len(weights)
     return score >= threshold
@@ -133,9 +144,11 @@ class Agent:
         # Carry out looped search here maybe
         new_id = int(np.random.choice(self.population.empty_spaces))
         self.population.empty_spaces.append(self.id)
+        self.population.group_at[self.id] = -1
         self.unshow()
         self.id = new_id
         self.population.empty_spaces.remove(self.id)
+        self.population.group_at[self.id] = self.group
 
         self.location = (
             self.population.coords_x[self.id],
@@ -193,15 +206,38 @@ class Population:
         layout = getattr(dis, "leds", None)
         centres_x = getattr(layout, "centres_x", None)
         centres_y = getattr(layout, "centres_y", None)
+        nearest_neighbours = getattr(layout, "nearest_neighbours", None)
+        nearest_neighbour_distances = getattr(
+            layout, "nearest_neighbour_distances", None
+        )
 
         if centres_x is None or centres_y is None:
             raise ValueError(
                 "Display object must provide real LED layout coordinates"
             )
+        if nearest_neighbours is None or nearest_neighbour_distances is None:
+            raise ValueError(
+                "Display object must provide a nearest_neighbours table"
+            )
+        if n_neighbours > nearest_neighbours.shape[1]:
+            raise ValueError(
+                f"n_neighbours ({n_neighbours}) exceeds the number of "
+                f"neighbours available in the nearest_neighbours table "
+                f"({nearest_neighbours.shape[1]})"
+            )
 
         coords_count = min(self.n_cells, len(centres_x), len(centres_y))
         self.coords_x = np.asarray(centres_x[:coords_count], dtype=float)
         self.coords_y = np.asarray(centres_y[:coords_count], dtype=float)
+        self.nearest_neighbours = np.asarray(nearest_neighbours)
+        self.nearest_neighbour_distances = np.asarray(
+            nearest_neighbour_distances, dtype=float
+        )
+
+        # Maps led id -> group of the agent occupying it, or -1 if empty.
+        # Kept up to date incrementally as agents move (see Agent.move()),
+        # so neighbour occupancy can be looked up in O(1) per candidate.
+        self.group_at = np.full(self.n_cells, -1, dtype=np.int32)
 
         self.empty_spaces = list(range(self.n_cells))
 
@@ -221,15 +257,23 @@ class Population:
             )
             for group, agent_id in zip(groups, agent_ids)
         ]
+        for agent in self.agents:
+            self.group_at[agent.id] = agent.group
 
         self.last_agent = -1
 
-    def count_like_neighbours(self, agent):
+    def update_agent_neighbours(self, agent):
+        """Look up agent's occupied neighbours from the static
+        nearest_neighbours table (filtered to the first n_neighbours
+        candidate cells) and update its like-neighbour state."""
 
-        assert len(agent.neighbour_ids) == self.n_neighbours
-        neighbour_groups = np.array(
-            [self.agents[n].group for n in agent.neighbour_ids]
-        )
+        candidates = self.nearest_neighbours[agent.id, : self.n_neighbours]
+        occupied_mask = self.group_at[candidates] >= 0
+        agent.neighbour_ids = candidates[occupied_mask]
+        agent.neighbour_distances = self.nearest_neighbour_distances[
+            agent.id, : self.n_neighbours
+        ][occupied_mask]
+        neighbour_groups = self.group_at[agent.neighbour_ids]
         agent.like_neighbour_mask = neighbour_groups == agent.group
         agent.like_neighbours = int(agent.like_neighbour_mask.sum())
 
@@ -239,84 +283,25 @@ class Population:
         Returns True if any agent moved during the round, otherwise False.
         """
 
-        # build a list of all agent locations
-        # This would be faster if they were already in one array
-        all_locations = [agent.location for agent in self.agents]
-
-        # Flag used to detect when no agents moved in one round
         any_moved = False
-        moved = True
 
         logger.info("Updating all agents...")
-        for i, agent in enumerate(self.agents):
-            # logging.info("Checking neighbours for agent %d group: %d",
-            #             i, agent.group)
-
-            # Build a KDTree from all agent locations
-            if moved:
-                tree = KDTree(all_locations)
-                # logging.info("KD-Tree rebuilt")
-            moved = False
-
-            # Query the KDTree to find the k nearest neighbours.
-            # KDTree.query returns two arrays, the first contains the
-            # nearest neighbour distances, the second contains the
-            # indeces of the nearest neighbours. Here, we ignore the
-            # first row as this is the location of the current agent.
-            k = self.n_neighbours + 1
-            distances, ids = tree.query(agent.location, k=k)
-            agent.neighbour_distances = distances[1:]
-            agent.neighbour_ids = ids[1:]
-
-            # logging.info("Agent's neighbours: %s", str(agent.neighbour_ids))
-            self.count_like_neighbours(agent)
-            # logging.info("Agent has %d like neighbours.",
-            #             agent.like_neighbours)
+        for agent in self.agents:
+            self.update_agent_neighbours(agent)
 
             if not agent.happy():
-                # logging.info("Agent not happy...")
-                # Now rebuild the KDTree from all agent locations except
-                # the current agent's location (this makes hunting for
-                # a new location faster)
-                del all_locations[i]
-                tree = KDTree(all_locations)
-
                 searches = 0
                 while not agent.happy():
                     agent.move(show=False)
-                    moved = True
                     any_moved = True
-
-                    k = self.n_neighbours
-                    distances, ids = tree.query(agent.location, k=k)
-                    agent.neighbour_distances = distances
-                    agent.neighbour_ids = ids
-
-                    # Because the current agent's location was not in the list
-                    # of points provided to KDTree, need to increment all
-                    # indeces > i by 1
-                    for j, neighbour_id in enumerate(agent.neighbour_ids):
-                        if neighbour_id > i:
-                            agent.neighbour_ids[j] += 1
-
-                    # logging.info("Agent's neighbours: %s",
-                    #             str(agent.neighbour_ids))
-
-                    self.count_like_neighbours(agent)
-
-                    # logging.info("Agent has %d like neighbours.",
-                    #              agent.like_neighbours)
+                    self.update_agent_neighbours(agent)
                     searches += 1
                     if searches > 50:
                         # logging.info("Gave up looking.")
                         break
 
-                # Put the current agent's location back in the list
-                all_locations.insert(i, agent.location)
-
-            if moved == True:
                 agent.show()
-                logger.info("Agent %d moved.", i)
+                logger.info("Agent %d moved.", agent.id)
 
         return any_moved
 
@@ -330,44 +315,25 @@ class Population:
         """
 
         n = len(self.agents)
-        all_locations = [agent.location for agent in self.agents]
-        tree = KDTree(all_locations)
-        k = self.n_neighbours + 1
 
         for step in range(n):
             i = (self.last_agent + 1 + step) % n
             agent = self.agents[i]
-            distances, ids = tree.query(agent.location, k=k)
-            agent.neighbour_distances = distances[1:]
-            agent.neighbour_ids = ids[1:]
-            self.count_like_neighbours(agent)
+            self.update_agent_neighbours(agent)
 
             if agent.happy():
                 continue
 
-            del all_locations[i]
-            move_tree = KDTree(all_locations)
-
             searches = 0
             while not agent.happy():
                 agent.move(show=False)
-
-                distances, ids = move_tree.query(
-                    agent.location, k=self.n_neighbours
-                )
-                agent.neighbour_distances = distances
-                agent.neighbour_ids = ids
-                for j, neighbour_id in enumerate(agent.neighbour_ids):
-                    if neighbour_id > i:
-                        agent.neighbour_ids[j] += 1
-
-                self.count_like_neighbours(agent)
+                self.update_agent_neighbours(agent)
                 searches += 1
                 if searches > 50:
                     break
 
             agent.show()
-            logger.info("Agent %d moved.", i)
+            logger.info("Agent %d moved.", agent.id)
             self.last_agent = i
             return agent
 
@@ -376,8 +342,14 @@ class Population:
     def show(self):
         """Show all agents on the LED array."""
 
-        for agent in self.agents:
-            agent.show()
+        if self.agents:
+            agent_ids = np.array(
+                [agent.id for agent in self.agents], dtype=np.int32
+            )
+            agent_rgb = np.array(
+                [agent.colour for agent in self.agents], dtype=np.uint8
+            )
+            self.display.set_leds(agent_ids, agent_rgb)
 
         if self.empty_spaces:
             empty_ids = np.array(self.empty_spaces, dtype=np.int32)

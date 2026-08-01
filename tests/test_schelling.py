@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from schelling import (
     NOMINAL_NEIGHBOUR_DISTANCE,
@@ -10,14 +11,39 @@ from schelling import (
 )
 
 
+def _make_nearest_neighbours(n_leds, width=18):
+    """Build a simple, valid (but not geometrically meaningful)
+    nearest_neighbours/nearest_neighbour_distances pair for testing:
+    the neighbours of led i are i+1, i-1, i+2, i-2, ... (mod n_leds)."""
+
+    width = min(width, n_leds - 1)
+    offsets = []
+    k = 1
+    while len(offsets) < width:
+        offsets.append(k)
+        if len(offsets) < width:
+            offsets.append(-k)
+        k += 1
+    offsets = np.array(offsets[:width])
+    ids = (np.arange(n_leds)[:, None] + offsets) % n_leds
+    distances = np.tile(np.abs(offsets).astype(float), (n_leds, 1))
+    return ids.astype(int), distances
+
+
 class DummyDisplay:
     def __init__(self, n_leds=4):
         self.n_leds = n_leds
+        nearest_neighbours, nearest_neighbour_distances = (
+            _make_nearest_neighbours(n_leds)
+        )
         # Matches the real Display1593 API: `.leds` exposes LED layout
-        # coordinates, not per-LED colours (see display1593.py).
+        # coordinates and the nearest_neighbours table, not per-LED
+        # colours (see display1593.py).
         self.leds = SimpleNamespace(
             centres_x=np.arange(n_leds, dtype=float),
             centres_y=np.zeros(n_leds, dtype=float),
+            nearest_neighbours=nearest_neighbours,
+            nearest_neighbour_distances=nearest_neighbour_distances,
         )
         self.led_colours = {}
         self.show_now_calls = 0
@@ -84,7 +110,9 @@ def test_is_happy_weighted_can_pass_where_is_happy_fails_for_close_neighbours():
     mask = np.array([True, True, False, False, False, False, False, False])
     # The 2 like neighbours are closer than nominal, so they are weighted
     # more heavily than the 6 unlike neighbours at nominal distance.
-    distances = np.array([25.0, 25.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+    near = NOMINAL_NEIGHBOUR_DISTANCE / 2
+    nominal = NOMINAL_NEIGHBOUR_DISTANCE
+    distances = np.array([near, near, nominal, nominal, nominal, nominal, nominal, nominal])
     mean_distance = distances.mean()
 
     assert mean_distance < NOMINAL_NEIGHBOUR_DISTANCE
@@ -98,12 +126,56 @@ def test_is_happy_weighted_can_fail_where_is_happy_passes_for_distant_neighbours
     mask = np.array([True, True, True, False, False, False, False, False])
     # The 3 like neighbours are farther than nominal, so they are weighted
     # less heavily than the 5 unlike neighbours at nominal distance.
-    distances = np.array([100.0, 100.0, 100.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+    far = NOMINAL_NEIGHBOUR_DISTANCE * 2
+    nominal = NOMINAL_NEIGHBOUR_DISTANCE
+    distances = np.array([far, far, far, nominal, nominal, nominal, nominal, nominal])
     mean_distance = distances.mean()
 
     assert mean_distance > NOMINAL_NEIGHBOUR_DISTANCE
     assert is_happy(3, 8, threshold)
     assert not is_happy_weighted(mask, distances, threshold)
+
+
+def test_is_happy_weighted_with_no_occupied_neighbours_is_happy():
+    # An agent with no occupied neighbour cells has nothing to be
+    # unhappy about.
+    assert is_happy_weighted(
+        np.array([], dtype=bool), np.array([], dtype=float), 0.9
+    )
+
+
+def test_update_agent_neighbours_only_includes_occupied_cells():
+    display = DummyDisplay(n_leds=20)
+    population = Population(display, 8, [1.0], [0.0], n_neighbours=6)
+    agent = population.agents[0]
+
+    population.update_agent_neighbours(agent)
+
+    candidates = population.nearest_neighbours[agent.id, :6]
+    expected_ids = candidates[population.group_at[candidates] >= 0]
+
+    assert set(agent.neighbour_ids.tolist()) == set(expected_ids.tolist())
+    assert len(agent.neighbour_ids) <= 6
+    assert np.all(population.group_at[agent.neighbour_ids] >= 0)
+
+
+def test_group_at_updated_when_agent_moves():
+    display = DummyDisplay(n_leds=20)
+    population = Population(display, 5, [1.0], [0.0], n_neighbours=4)
+    agent = population.agents[0]
+    old_id = agent.id
+
+    agent.move(show=False)
+
+    assert population.group_at[old_id] == -1
+    assert population.group_at[agent.id] == agent.group
+
+
+def test_population_rejects_n_neighbours_exceeding_table_width():
+    display = DummyDisplay(n_leds=6)  # table width = min(18, 5) = 5
+
+    with pytest.raises(ValueError):
+        Population(display, 1, [1.0], [0.0], n_neighbours=6)
 
 
 def test_population_can_address_second_board_led_ids():
