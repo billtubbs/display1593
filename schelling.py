@@ -28,10 +28,10 @@ if str(SRC_DIR) not in sys.path:
 
 COLOURS = [
     (46, 23, 0),
-    (4, 16, 3),  # dark forest green - pure (0, 46, 0) reads much
-                 # brighter than the other colours here, since the eye
-                 # (and typical RGB LEDs) are far more sensitive to
-                 # green than red or blue for the same raw value
+    (8, 30, 6),  # forest green - pure (0, 46, 0) reads much brighter
+                 # than the other colours here, since the eye (and
+                 # typical RGB LEDs) are far more sensitive to green
+                 # than red or blue for the same raw value
     (23, 23, 23),
     (0, 0, 46),
     (29, 15, 8),
