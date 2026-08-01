@@ -11,6 +11,7 @@
 # nearest_neighbour_distances
 
 import numpy as np
+from scipy.spatial import KDTree
 
 num_cells = 1593
 max_num_neighbours = 6
@@ -759,6 +760,25 @@ centres_y = np.array((
     1887.21484, 1923.85168, 1896.12, 1935.00208, 1979.12,
     1990.73901, 1948.36438, 1973.94824
 ))
+
+def compute_nearest_neighbours(centres_x, centres_y, num_neighbours=max_num_neighbours):
+    """Reconstruct the nearest_neighbours and nearest_neighbour_distances
+    arrays from LED co-ordinates.
+
+    For each LED, finds the `num_neighbours` closest other LEDs (by
+    Euclidean distance) and returns their indices and distances, both
+    sorted nearest-first, matching the layout of the static
+    nearest_neighbours / nearest_neighbour_distances arrays below.
+    """
+
+    points = np.column_stack((centres_x, centres_y))
+    tree = KDTree(points)
+    distances, indices = tree.query(points, k=num_neighbours + 1)
+
+    # Drop the first column: each point's nearest "neighbour" is itself
+    # (distance 0), which query() always returns at index 0.
+    return indices[:, 1:], distances[:, 1:]
+
 
 nearest_neighbours = np.array((
         (    35,   143,   100,     1,   101,   142),
