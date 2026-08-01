@@ -1,7 +1,9 @@
 import threading
 import time
 
-from display1593.lock import DisplayLock
+import pytest
+
+from display1593.lock import DisplayLock, DisplayLockTimeout
 
 
 def test_lock_can_be_acquired_and_released(tmp_path):
@@ -28,12 +30,12 @@ def test_second_holder_blocks_until_first_releases(tmp_path):
     lock1.acquire()
     acquired_at = []
 
-    def try_acquire():
-        lock2.acquire()
+    def try_acquire(timeout):
+        lock2.acquire(timeout=timeout)
         acquired_at.append(time.monotonic())
         lock2.release()
 
-    t = threading.Thread(target=try_acquire)
+    t = threading.Thread(target=try_acquire, kwargs={"timeout": 2})
     t.start()
 
     # lock2 should still be waiting - lock1 hasn't released yet
@@ -48,3 +50,16 @@ def test_second_holder_blocks_until_first_releases(tmp_path):
     t.join(timeout=2)
     assert not t.is_alive()
     assert acquired_at[0] >= release_time
+
+
+def test_second_holder_raises_after_timeout(tmp_path):
+    path = str(tmp_path / "test.lock")
+    lock1 = DisplayLock(path)
+    lock2 = DisplayLock(path)
+
+    lock1.acquire()
+    try:
+        with pytest.raises(DisplayLockTimeout):
+            lock2.acquire(timeout=0.3)
+    finally:
+        lock1.release()

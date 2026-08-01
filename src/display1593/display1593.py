@@ -14,6 +14,7 @@ from serial_comm import (
 )
 
 from display1593.data.ledArray_data_1593 import centres_x, centres_y
+from display1593.lock import DEFAULT_TIMEOUT as DEFAULT_LOCK_TIMEOUT
 from display1593.lock import DisplayLock
 
 # The nearest_neighbours/nearest_neighbour_distances arrays in
@@ -260,10 +261,12 @@ class Display1593:
             self.nearest_neighbour_distances
         )
 
-    def connect(self, max_attempts=3):
-        # Block here until no other process is controlling the display.
-        # Released in disconnect(), or below if connecting fails partway.
-        self._lock.acquire()
+    def connect(self, max_attempts=3, lock_timeout=DEFAULT_LOCK_TIMEOUT):
+        # Wait here (up to lock_timeout seconds) for exclusive control of
+        # the display; raises DisplayLockTimeout if another process is
+        # still holding it. Released in disconnect(), or below if
+        # connecting fails partway.
+        self._lock.acquire(timeout=lock_timeout)
         try:
             connections = {}
             for port in self.ports:

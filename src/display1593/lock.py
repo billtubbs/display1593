@@ -19,21 +19,31 @@ file descriptor), so there's no stale lock file to clean up by hand.
 
 import fcntl
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOCK_PATH = "/tmp/display1593.lock"
+DEFAULT_TIMEOUT = 5.0
+POLL_INTERVAL = 0.2
+
+
+class DisplayLockTimeout(Exception):
+    """Raised when the lock is still held by another process after
+    waiting for the given timeout."""
 
 
 class DisplayLock:
-    """A blocking, OS-level exclusive lock.
+    """An OS-level exclusive lock, with a wait-then-give-up timeout.
 
     Only one DisplayLock (in any process, on this machine) can be
     holding the lock at the same path at a time. Calling acquire()
-    will wait (block) for as long as necessary until it's the only
-    holder, then return. This is used to stop two scripts from talking
-    to the display's microcontrollers over serial at the same time,
-    which corrupts the communication between them.
+    waits for up to `timeout` seconds for the lock to become free; if
+    it's still held by another process after that, it raises
+    DisplayLockTimeout rather than waiting forever. This is used to
+    stop two scripts from talking to the display's microcontrollers
+    over serial at the same time, which corrupts the communication
+    between them.
 
     Can be used directly:
 
@@ -54,14 +64,19 @@ class DisplayLock:
         self.path = path
         self._file = None
 
-    def acquire(self):
-        """Block until the lock is free, then acquire it.
+    def acquire(self, timeout=DEFAULT_TIMEOUT):
+        """Try to acquire the lock, giving up after `timeout` seconds.
 
-        Opens (creating if necessary) the lock file, then calls
-        fcntl.flock() to request an exclusive lock ("LOCK_EX") on it.
-        Because the non-blocking flag ("LOCK_NB") is not passed, this
-        call pauses here for as long as another process already holds
-        the lock, and returns as soon as it's free.
+        Opens (creating if necessary) the lock file, then repeatedly
+        asks fcntl.flock() for an exclusive, non-blocking lock
+        ("LOCK_EX | LOCK_NB") on it, pausing POLL_INTERVAL seconds
+        between attempts. flock() has no built-in timeout, so this
+        polling loop is what turns it into a "wait up to N seconds"
+        operation: each individual attempt returns immediately (either
+        it succeeds, or raises BlockingIOError because another process
+        still holds it), and we keep retrying until either it succeeds
+        or `timeout` seconds have passed, at which point we raise
+        DisplayLockTimeout instead of continuing to wait.
 
         Calling this again while already held (by this same
         DisplayLock instance) does nothing, so it's safe to call more
@@ -70,10 +85,23 @@ class DisplayLock:
         if self._file is not None:
             return
 
-        logger.debug("Waiting to acquire display lock (%s)...", self.path)
         self._file = open(self.path, "w")
-        fcntl.flock(self._file, fcntl.LOCK_EX)
-        logger.debug("Display lock acquired.")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(self._file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logger.debug("Display lock acquired.")
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    self._file.close()
+                    self._file = None
+                    raise DisplayLockTimeout(
+                        f"Could not acquire display lock ({self.path}) "
+                        f"within {timeout}s - another process is "
+                        "likely controlling the display."
+                    ) from None
+                time.sleep(POLL_INTERVAL)
 
     def release(self):
         """Release the lock, if currently held. Safe to call even if
