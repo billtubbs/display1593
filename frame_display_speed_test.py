@@ -1,6 +1,7 @@
 # Simple test script
 
 import time
+
 import numpy as np
 
 from display1593 import Display1593

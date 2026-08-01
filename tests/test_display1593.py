@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from display1593.display1593 import Display1593
 from display1593.data.ledArray_data_1593 import num_cells
+from display1593.display1593 import Display1593
 
 
 class NearestNeighboursAttributeTests(unittest.TestCase):

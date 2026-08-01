@@ -1,5 +1,3 @@
-import unittest
-
 import numpy as np
 
 from schelling import Population
@@ -25,42 +23,39 @@ class DummyDisplay:
         self.show_now_calls += 1
 
 
-class SchellingDisplayTests(unittest.TestCase):
-    def test_population_show_flushes_display(self):
-        display = DummyDisplay()
-        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
+def test_population_show_flushes_display():
+    display = DummyDisplay()
+    population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
 
-        population.show()
+    population.show()
 
-        self.assertEqual(display.show_now_calls, 1)
-
-    def test_agent_move_flushes_display(self):
-        display = DummyDisplay()
-        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
-        agent = population.agents[0]
-
-        agent.move(show=True)
-
-        self.assertGreaterEqual(display.show_now_calls, 1)
-
-    def test_population_uses_full_led_range(self):
-        display = DummyDisplay(n_leds=1593)
-        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
-
-        self.assertEqual(population.n_cells, 1593)
-        self.assertEqual(len(population.empty_spaces), 1593)
-
-    def test_population_can_address_second_board_led_ids(self):
-        display = DummyDisplay(n_leds=1593)
-        population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
-
-        display.set_leds(
-            np.array([798], dtype=np.int32),
-            np.array([(1, 2, 3)], dtype=np.uint8),
-        )
-
-        self.assertIn(798, display.leds)
+    assert display.show_now_calls == 1
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_agent_move_flushes_display():
+    display = DummyDisplay()
+    population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
+    agent = population.agents[0]
+
+    agent.move(show=True)
+
+    assert display.show_now_calls >= 1
+
+
+def test_population_uses_full_led_range():
+    display = DummyDisplay(n_leds=1593)
+    population = Population(display, 1, [1.0], [0.0], n_neighbours=1)
+
+    assert population.n_cells == 1593
+    assert len(population.empty_spaces) == 1593
+
+
+def test_population_can_address_second_board_led_ids():
+    display = DummyDisplay(n_leds=1593)
+
+    display.set_leds(
+        np.array([798], dtype=np.int32),
+        np.array([(1, 2, 3)], dtype=np.uint8),
+    )
+
+    assert 798 in display.leds

@@ -1,14 +1,11 @@
 import logging
 import os
 import time
-
 from itertools import pairwise
-
 
 import numpy as np
 import serial
 from numba import jit, types
-
 from serial_comm import (
     connect_to_arduino,
     receive_data_from_arduino,
@@ -18,10 +15,9 @@ from serial_comm import (
 from display1593.data.ledArray_data_1593 import (
     centres_x,
     centres_y,
-    nearest_neighbours,
     nearest_neighbour_distances,
+    nearest_neighbours,
 )
-
 
 # Numba array types
 readonly_uint8_array = types.Array(types.uint8, 1, "C", readonly=True)

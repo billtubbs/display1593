@@ -1,15 +1,17 @@
-from itertools import cycle
+import os
+import time
 from collections import deque
+from itertools import cycle
+
 import numpy as np
 import serial
 from serial_comm import (
     connect_to_arduino,
-    send_data_to_arduino,
     receive_data_from_arduino,
+    send_data_to_arduino,
 )
+
 from display1593 import *
-import os
-import time
 
 
 def main():
