@@ -761,18 +761,28 @@ centres_y = np.array((
     1990.73901, 1948.36438, 1973.94824
 ))
 
-def compute_nearest_neighbours(centres_x, centres_y, num_neighbours=max_num_neighbours):
+def compute_nearest_neighbours(
+    centres_x, centres_y, width=width, height=height,
+    num_neighbours=max_num_neighbours,
+):
     """Reconstruct the nearest_neighbours and nearest_neighbour_distances
     arrays from LED co-ordinates.
 
+    The LED layout is one tile of an infinitely-repeating pattern (tile
+    size width x height), so an LED near one edge of the array can be a
+    near neighbour of an LED near the opposite edge. This uses a
+    periodic KDTree (wrapping at width/height) so those wrap-around
+    neighbours are found correctly.
+
     For each LED, finds the `num_neighbours` closest other LEDs (by
-    Euclidean distance) and returns their indices and distances, both
-    sorted nearest-first, matching the layout of the static
-    nearest_neighbours / nearest_neighbour_distances arrays below.
+    periodic Euclidean distance) and returns their indices and
+    distances, both sorted nearest-first, matching the layout of the
+    static nearest_neighbours / nearest_neighbour_distances arrays
+    below.
     """
 
     points = np.column_stack((centres_x, centres_y))
-    tree = KDTree(points)
+    tree = KDTree(points, boxsize=[width, height])
     distances, indices = tree.query(points, k=num_neighbours + 1)
 
     # Drop the first column: each point's nearest "neighbour" is itself
