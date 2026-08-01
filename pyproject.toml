@@ -8,9 +8,10 @@ version = "0.1.0"
 description = "LED display controller for the 1593 display"
 requires-python = ">=3.9"
 dependencies = [
-  "numpy>=2.2.5",
+  "numpy>=2.2.4",
   "numba>=0.61.2",
   "pyserial>=3.5",
+  "scipy>=1.15.3",
 ]
 
 [project.optional-dependencies]
