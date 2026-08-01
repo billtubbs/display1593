@@ -404,8 +404,10 @@ def main():
 
             # Randomly assign population and model parameters
             # Number of population groups
-            p = [0.5, 0.4, 0.1]
-            n_groups = np.random.choice(range(2, 5), p=p)
+            #p = [0.5, 0.4, 0.1]
+            #n_values = [2, 3, 4]
+            #n_groups = np.random.choice(n_values, p=p)
+            n_groups = 2
 
             # Number of neighbours in happiness calculation
             n_neighbours = 9
