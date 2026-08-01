@@ -1,6 +1,6 @@
 import unittest
 
-from data.ledArray_data_1593 import build_lookup_table
+from display1593.data.ledArray_data_1593 import build_lookup_table
 
 
 class BuildLookupTableTests(unittest.TestCase):

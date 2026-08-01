@@ -1,8 +1,6 @@
 import logging
 import os
-import sys
 import time
-from pathlib import Path
 
 from itertools import pairwise
 
@@ -17,7 +15,7 @@ from serial_comm import (
     send_data_to_arduino,
 )
 
-from data.ledArray_data_1593 import (
+from display1593.data.ledArray_data_1593 import (
     centres_x,
     centres_y,
     nearest_neighbours,
@@ -60,11 +58,6 @@ CYAN = np.array([0, B2, B2], dtype="uint8")
 
 # Arduino communication
 BAUD_RATE = 57600
-
-# Load the legacy LED geometry data for the 1593 display.
-DATA_DIR = Path(__file__).resolve().parents[1] / ".." / "data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.insert(0, str(DATA_DIR))
 
 
 # Serial ports of Teensy devices
@@ -244,7 +237,9 @@ class Display1593:
         )
         self.n_leds = self.led_idx[-1]
         self._connections = []
-        self.nearest_neighbours = np.asarray(nearest_neighbours, dtype=np.uint16)
+        self.nearest_neighbours = np.asarray(
+            nearest_neighbours, dtype=np.uint16
+        )
         self.nearest_neighbour_distances = np.asarray(
             nearest_neighbour_distances, dtype=float
         )
@@ -253,7 +248,9 @@ class Display1593:
         self.leds.centres_x = np.asarray(centres_x, dtype=float)
         self.leds.centres_y = np.asarray(centres_y, dtype=float)
         self.leds.nearest_neighbours = self.nearest_neighbours
-        self.leds.nearest_neighbour_distances = self.nearest_neighbour_distances
+        self.leds.nearest_neighbour_distances = (
+            self.nearest_neighbour_distances
+        )
 
     def connect(self):
         connections = {}
