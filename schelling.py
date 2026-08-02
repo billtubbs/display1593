@@ -35,14 +35,52 @@ COLOURS = [
     (25, 0, 0),
 ]
 
-# Happiness threshold values to sample from
+# Happiness threshold values to sample from (one is picked per group,
+# as the mean of that group's per-agent threshold distribution - see
+# THRESHOLD_STD and sample_thresholds())
 # THRESHOLD_VALUES = [0.25, 0.35, 0.5]
 THRESHOLD_VALUES = [0.333]
+
+# Standard deviation of each group's per-agent threshold distribution
+THRESHOLD_STD = 0.05
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
 
 configure_root_logging(LOG_PATH)
+
+
+def beta_params(mean, std):
+    """Convert a target mean and standard deviation (both in (0, 1)) to
+    Beta distribution shape parameters (alpha, beta).
+
+    The maximum possible standard deviation for a distribution on
+    [0, 1] with a given mean is sqrt(mean * (1 - mean)) (the std of a
+    two-point distribution sitting at 0 and 1) - raises ValueError if
+    std meets or exceeds that.
+    """
+    max_variance = mean * (1 - mean)
+    variance = std ** 2
+    if variance >= max_variance:
+        raise ValueError(
+            f"std={std} too large for mean={mean}; "
+            f"max is {max_variance ** 0.5:.4f}"
+        )
+    nu = max_variance / variance - 1
+    return mean * nu, (1 - mean) * nu
+
+
+def sample_thresholds(mean, std, size):
+    """Sample `size` happiness threshold values in [0, 1] from a Beta
+    distribution with the given mean and standard deviation.
+
+    If std <= 0, or mean is 0 or 1 (a Beta distribution can't have
+    positive spread at those means), returns `mean` repeated instead.
+    """
+    if std <= 0 or mean <= 0 or mean >= 1:
+        return np.full(size, mean)
+    alpha, beta = beta_params(mean, std)
+    return np.random.beta(alpha, beta, size=size)
 
 
 def is_happy(like_neighbours, n_neighbours, threshold):
@@ -161,6 +199,7 @@ class Population:
         n,
         probs,
         thresholds,
+        threshold_stds=None,
         n_neighbours=12,
         cols=None,
         background_col=(0, 0, 0),
@@ -170,6 +209,11 @@ class Population:
         self.n_agents = n
         self.probs = probs
         self.n_groups = len(probs)
+        self.thresholds = thresholds
+        self.threshold_stds = (
+            np.zeros(self.n_groups) if threshold_stds is None
+            else np.asarray(threshold_stds, dtype=float)
+        )
         if cols is None:
             cols = COLOURS[: self.n_groups]
         self.colours = cols
@@ -222,15 +266,27 @@ class Population:
             set(self.empty_spaces) - {int(i) for i in agent_ids}
         )
 
+        # Each agent's own threshold is sampled from a Beta distribution
+        # centred on its group's threshold, rather than every agent in a
+        # group sharing that exact value.
+        agent_thresholds = np.empty(n, dtype=float)
+        for g in range(self.n_groups):
+            mask = groups == g
+            count = int(mask.sum())
+            if count:
+                agent_thresholds[mask] = sample_thresholds(
+                    thresholds[g], self.threshold_stds[g], count
+                )
+
         self.agents = [
             Agent(
                 self,
                 group,
-                thresholds[group],
+                agent_thresholds[i],
                 agent_id,
                 is_happy=is_happy_weighted,
             )
-            for group, agent_id in zip(groups, agent_ids)
+            for i, (group, agent_id) in enumerate(zip(groups, agent_ids))
         ]
         for agent in self.agents:
             self.group_at[agent.id] = agent.group
@@ -382,8 +438,10 @@ def main(n_neighbours=12):
             # n_groups = np.random.choice(n_values, p=p)
             n_groups = 2
 
-            # Happiness thresholds
+            # Happiness thresholds - each group's value is the mean of
+            # that group's per-agent threshold distribution
             thresholds = np.random.choice(THRESHOLD_VALUES, size=n_groups)
+            threshold_stds = np.full(n_groups, THRESHOLD_STD)
 
             # Number of agents
             n_agents = dis.n_leds - (100 + n_groups * 100)
@@ -400,6 +458,7 @@ def main(n_neighbours=12):
                 n_agents,
                 probs,
                 thresholds,
+                threshold_stds=threshold_stds,
                 n_neighbours=n_neighbours,
                 cols=cols[0:n_groups],
             )
@@ -408,6 +467,7 @@ def main(n_neighbours=12):
             logger.info("%d population groups.", population.n_groups)
             logger.info("Distribution: %s", str(population.probs))
             logger.info("Thresholds: %s", str(thresholds.tolist()))
+            logger.info("Threshold stds: %s", str(threshold_stds.tolist()))
             logger.info("Number of nearest neighbours: %d", n_neighbours)
 
             logger.info("Displaying initial population...")
