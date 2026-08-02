@@ -511,9 +511,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n-neighbours",
         type=int,
-        default=18,
+        default=9,
         help="number of nearest neighbours used in the happiness "
-        "calculation (e.g. 6 or 18; default: 12)",
+        "calculation (e.g. 6 or 18; default: 9)",
     )
     args = parser.parse_args()
     main(n_neighbours=args.n_neighbours)
