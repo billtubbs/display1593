@@ -12,6 +12,7 @@ dependencies = [
   "numba>=0.61.2,<0.63",
   "pyserial>=3.5",
   "scipy>=1.15.3",
+  "pillow>=10.0",
 ]
 
 [project.optional-dependencies]

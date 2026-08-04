@@ -1,4 +1,5 @@
 import logging
+import pickle
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import serial
 from numba import jit, types
+from PIL import Image
 from serial_comm import (
     connect_to_arduino,
     receive_data_from_arduino,
@@ -28,6 +30,16 @@ nearest_neighbours = np.loadtxt(
 nearest_neighbour_distances = np.loadtxt(
     _DATA_DIR / "nearest_neighbour_distances_1593.csv", delimiter=","
 )
+
+# mask1593[i] holds the flat (256x256) pixel indices averaged to produce
+# the colour of LED i, padded with 0 to a fixed width of 45 columns. 0 is
+# never a genuine sample (the nearest any LED gets to pixel (0, 0) is
+# (1, 1); the closest real index anywhere in the mask is 296), so it's
+# safe to use as a padding sentinel and exclude from the average below.
+# Pickled under Python 2 (protocol 0), hence encoding="latin1".
+with open(_DATA_DIR / "mask1593.pickle", "rb") as f:
+    mask1593 = pickle.load(f, encoding="latin1")
+_mask1593_valid = mask1593 != 0
 
 # Numba array types
 readonly_uint8_array = types.Array(types.uint8, 1, "C", readonly=True)
@@ -452,6 +464,32 @@ class Display1593:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
             self.check_response(ser, cmd)
+
+    def prepare_image(self, image, size=(256, 256)):
+        """Crop image to a square and resize it for convert_image()."""
+        if not isinstance(image, Image.Image):
+            image = Image.fromarray(np.asarray(image))
+        image = image.convert("RGB")
+        width, height = image.size
+        if width != height:
+            side = min(width, height)
+            left = (width - side) // 2
+            top = (height - side) // 2
+            image = image.crop((left, top, left + side, top + side))
+        return np.asarray(image.resize(size))
+
+    def convert_image(self, image_array):
+        """Convert a 256x256 RGB image array to 1593 RGB LED intensities."""
+        pixels = image_array.reshape(-1, image_array.shape[-1])
+        samples = pixels[mask1593].astype(float)
+        samples[~_mask1593_valid] = np.nan
+        return np.nanmean(samples, axis=1).astype(int)
+
+    def show_image(self, filename, dimness=8):
+        logger.debug("Method show_image.")
+        image = Image.open(filename)
+        z = self.convert_image(self.prepare_image(image))
+        self.set_all_leds(z**2 / (256 * dimness))
 
     def show_now(self):
         logger.debug("Method show_now.")
