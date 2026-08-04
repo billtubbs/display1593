@@ -39,10 +39,10 @@ COLOURS = [
 # as the mean of that group's per-agent threshold distribution - see
 # THRESHOLD_STD and sample_thresholds())
 # THRESHOLD_VALUES = [0.25, 0.35, 0.5]
-THRESHOLD_VALUES = [0.333]
+THRESHOLD_VALUES = [0.5]
 
 # Standard deviation of each group's per-agent threshold distribution
-THRESHOLD_STD = 0.05
+THRESHOLD_STD = 0.1
 
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "schelling.log"
@@ -511,9 +511,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n-neighbours",
         type=int,
-        default=9,
+        default=6,
         help="number of nearest neighbours used in the happiness "
-        "calculation (e.g. 6 or 18; default: 9)",
+        "calculation (e.g. 6 or 18; default: 6)",
     )
     args = parser.parse_args()
     main(n_neighbours=args.n_neighbours)
