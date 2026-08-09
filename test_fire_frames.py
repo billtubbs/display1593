@@ -13,6 +13,7 @@ FILENAMES = ["fire1.png", "fire2.png", "fire3.png"]
 IMAGE_DIR = "images"
 TIME_STEP = 0.0625  # seconds
 
+
 def main(dis, filenames):
 
     dis.clear_all()
@@ -22,7 +23,7 @@ def main(dis, filenames):
     for filename in filenames:
         img = Image.open(os.path.join(IMAGE_DIR, filename))
         data = dis.prepare_image(np.array(img)[:, :, :3])
-        z = dis.convert_image(data)**2 / (256 * dimness)
+        z = dis.convert_image(data) ** 2 / (256 * dimness)
         img_data.append(z.astype("uint8"))
 
     print("Starting...")
@@ -42,7 +43,7 @@ def main(dis, filenames):
 
             next_time += TIME_STEP
             scheduled_times.append(next_time)
-            
+
             # Synchronize display to clock
             wait_time = max(0, next_time - time.monotonic())
             wait_times.append(wait_time)
@@ -59,7 +60,7 @@ def main(dis, filenames):
     actual_times = np.array(actual_times) - start_time
 
     for sch, act, wait in zip(scheduled_times, actual_times, wait_times):
-        print(f"{sch:6.3f} {act:6.3f} {wait*1000:6.2f} ms")
+        print(f"{sch:6.3f} {act:6.3f} {wait * 1000:6.2f} ms")
 
 
 if __name__ == "__main__":
