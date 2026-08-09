@@ -107,7 +107,9 @@ def main():
                     print(f"Out of range (0-{num_cells - 1})")
                     continue
             else:
-                print(f"\nUnrecognized key {ch!r}. Use n/space/Enter, 'b', a number, or 'q'.")
+                print(
+                    f"\nUnrecognized key {ch!r}. Use n/space/Enter, 'b', a number, or 'q'."
+                )
                 continue
             show_led_and_neighbours(dis, nearest_neighbours, led_id)
 

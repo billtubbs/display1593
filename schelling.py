@@ -60,11 +60,11 @@ def beta_params(mean, std):
     std meets or exceeds that.
     """
     max_variance = mean * (1 - mean)
-    variance = std ** 2
+    variance = std**2
     if variance >= max_variance:
         raise ValueError(
             f"std={std} too large for mean={mean}; "
-            f"max is {max_variance ** 0.5:.4f}"
+            f"max is {max_variance**0.5:.4f}"
         )
     nu = max_variance / variance - 1
     return mean * nu, (1 - mean) * nu
@@ -211,7 +211,8 @@ class Population:
         self.n_groups = len(probs)
         self.thresholds = thresholds
         self.threshold_stds = (
-            np.zeros(self.n_groups) if threshold_stds is None
+            np.zeros(self.n_groups)
+            if threshold_stds is None
             else np.asarray(threshold_stds, dtype=float)
         )
         if cols is None:
