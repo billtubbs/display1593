@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from itertools import cycle
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from display1593 import Display1593
 
 DATA_DIR = Path(__file__).parent / "data"
 TIME_STEP = 0.0625  # seconds
+MAX_LOGGED_TIMES = 1000
 
 
 def load_led_frames(data_dir):
@@ -25,9 +27,9 @@ def main(dis, img_data):
 
     # Prepare to log timing
     start_time = time.monotonic()
-    scheduled_times = []
-    actual_times = []
-    wait_times = []
+    scheduled_times = deque(maxlen=MAX_LOGGED_TIMES)
+    actual_times = deque(maxlen=MAX_LOGGED_TIMES)
+    wait_times = deque(maxlen=MAX_LOGGED_TIMES)
 
     next_time = time.monotonic()
     try:
