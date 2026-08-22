@@ -43,6 +43,7 @@ with Display1593() as dis:
 ## Current projects in this repository
 
 - `show_digclock.py` - displays a digital clock on the LED display
+- `show_image.py` - displays a single image file on the LED display
 - `schelling.py` - runs a Schelling segregation simulation on the display
 - `comm_led_test.py` - low-level communication and LED testing helper
 - `frame_display_speed_test.py` - timing and performance checks for display updates
@@ -60,6 +61,7 @@ After=multi-user.target
 [Service]
 Type=idle
 User=pi
+WorkingDirectory=/home/pi/code/display1593
 ExecStart=/usr/bin/python3 /home/pi/code/display1593/show_digclock.py
 Restart=always
 RestartSec=5
