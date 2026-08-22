@@ -36,7 +36,9 @@ def parse_args():
     parser.add_argument("--buoyancy", type=float, default=0.5)
     parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument("--n-jacobi", type=int, default=40)
-    parser.add_argument("--seconds", type=float, default=60.0, help="sim duration")
+    parser.add_argument(
+        "--seconds", type=float, default=60.0, help="sim duration"
+    )
     parser.add_argument("--heater-x", type=float, default=1000.0)
     parser.add_argument("--heater-y", type=float, default=1000.0)
     parser.add_argument("--heater-radius", type=float, default=200.0)
@@ -98,8 +100,14 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     finite = np.isfinite(Th)
-    vmin = min(args.t_cold, np.nanmin(Th[finite])) if finite.any() else args.t_cold
-    vmax = max(args.t_hot, np.nanmax(Th[finite])) if finite.any() else args.t_hot
+    vmin = (
+        min(args.t_cold, np.nanmin(Th[finite]))
+        if finite.any()
+        else args.t_cold
+    )
+    vmax = (
+        max(args.t_hot, np.nanmax(Th[finite])) if finite.any() else args.t_hot
+    )
 
     fig, ax = plt.subplots(figsize=(7, 7), dpi=args.dpi)
     fig.patch.set_facecolor("black")
@@ -138,7 +146,8 @@ def main():
         if quiver is not None:
             quiver.set_UVC(U[step], V[step])
         fig.savefig(
-            out_dir / f"frame_{i:0{n_digits}d}.png", facecolor=fig.get_facecolor()
+            out_dir / f"frame_{i:0{n_digits}d}.png",
+            facecolor=fig.get_facecolor(),
         )
 
     plt.close(fig)

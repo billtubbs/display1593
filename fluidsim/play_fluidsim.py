@@ -5,32 +5,44 @@ this follows - but that script plays back precomputed frames, while this
 one computes each frame on the fly, so the achievable display rate is
 capped by how fast NavierStokesSim.step() runs on this machine).
 
-Temperature is mapped to colour with a simple cold (dark blue) -> hot
-(pale yellow) ramp; there's no image data involved, unlike show_image.py.
+Temperature is mapped to colour with a ramp sampled from matplotlib's
+"plasma" colormap (dark blue -> purple -> red -> orange -> yellow), capped
+short of plasma's own brightest tip so "hot" isn't blinding. There's no
+image data involved, unlike show_image.py.
+
+digclock.py's LEDs are always pure red (only the red channel is ever
+set), so a raw value there and a raw channel value here aren't the same
+amount of light: three channels lit at once is far more total output
+than one. `brightness_divisor` (applied the same way as digclock's
+per-hour `bness`, just fixed rather than time-varying) scales all three
+channels down uniformly to compensate - tune it by eye on the actual
+display, this is not something that can be derived exactly.
 """
 
 import argparse
 import time
-from collections import deque
 
 import numpy as np
 
 from display1593 import Display1593
 from fluidsim import Geometry, NavierStokesSim
 
-MAX_LOGGED_TIMES = 1000
-
-# (temperature fraction, R, G, B) control points for the cold->hot ramp.
+# (temperature fraction, R, G, B) control points for the cold->hot ramp,
+# sampled from matplotlib's "plasma" colormap at u = 0.85 * fraction (i.e.
+# capped at plasma's u=0.85, short of its brightest/most saturated tip).
 _COLOUR_STOPS = np.array(
     [
-        [0.0, 0, 0, 40],
-        [0.5, 255, 90, 0],
-        [1.0, 255, 240, 180],
+        [0.0, 13, 8, 135],
+        [0.2, 94, 1, 166],
+        [0.4, 158, 25, 157],
+        [0.6, 205, 74, 118],
+        [0.8, 239, 126, 80],
+        [1.0, 254, 186, 44],
     ]
 )
 
 
-def temperature_to_rgb(T, T_cold, T_hot):
+def temperature_to_rgb(T, T_cold, T_hot, brightness_divisor=1):
     """Map per-LED temperature to an (n_leds, 3) uint8 RGB array."""
     span = T_hot - T_cold
     u = np.clip((T - T_cold) / span, 0.0, 1.0) if span else np.zeros_like(T)
@@ -38,7 +50,7 @@ def temperature_to_rgb(T, T_cold, T_hot):
     rgb = np.stack(
         [np.interp(u, stops, colours[:, c]) for c in range(3)], axis=1
     )
-    return rgb.astype("uint8")
+    return (rgb // brightness_divisor).astype("uint8")
 
 
 def benchmark_step(sim, n_warmup=5, n_timed=20):
@@ -56,7 +68,17 @@ def benchmark_step(sim, n_warmup=5, n_timed=20):
     return (time.perf_counter() - t0) / n_timed
 
 
-def run(dis, sim, boundary_idx, T_cold, T_hot, hot_start_time, time_step):
+def run(
+    dis,
+    sim,
+    boundary_idx,
+    T_cold,
+    T_hot,
+    hot_start_time,
+    time_step,
+    brightness_divisor=1,
+    report_interval=60.0,
+):
     n = sim.geometry.n
     mask = np.zeros(n)
     mask[boundary_idx] = 1.0
@@ -68,53 +90,107 @@ def run(dis, sim, boundary_idx, T_cold, T_hot, hot_start_time, time_step):
     dis.clear_all()
 
     print("Starting...")
-    start_time = time.monotonic()
-    scheduled_times = deque(maxlen=MAX_LOGGED_TIMES)
-    actual_times = deque(maxlen=MAX_LOGGED_TIMES)
-    wait_times = deque(maxlen=MAX_LOGGED_TIMES)
-
     step_count = 0
+    compute_times = []
+    report_start = time.monotonic()
     next_time = time.monotonic()
+
     try:
         while True:
             t = step_count * sim.dt
             boundary_temp = T_hot if t >= hot_start_time else T_cold
             T_boundary = mask * boundary_temp
-            u, v, T = sim.step(u, v, T, T_boundary)
-            step_count += 1
 
-            dis.set_all_leds(temperature_to_rgb(T, T_cold, T_hot))
+            compute_start = time.perf_counter()
+            u_next, v_next, T_next = sim.step(u, v, T, T_boundary)
 
+            if (
+                np.isfinite(u_next).all()
+                and np.isfinite(v_next).all()
+                and np.isfinite(T_next).all()
+            ):
+                u, v, T = u_next, v_next, T_next
+                step_count += 1
+            else:
+                # This is a long-running/unattended display, so a numerical
+                # blow-up (see fluidsim.py's docstring re: stability) needs
+                # to self-heal rather than leave the display stuck on
+                # garbage forever - NaN, once it appears, poisons every
+                # later step. Discard the bad state and restart the
+                # cold -> heated-at-hot_start_time cycle from scratch.
+                print(
+                    f"WARNING: simulation diverged at t={t:.2f}s (NaN/Inf) - "
+                    "resetting to the cold initial state"
+                )
+                u = np.zeros(n)
+                v = np.zeros(n)
+                T = np.full(n, T_cold)
+                step_count = 0
+
+            rgb = temperature_to_rgb(T, T_cold, T_hot, brightness_divisor)
+            compute_time = time.perf_counter() - compute_start
+            compute_times.append(compute_time)
+
+            dis.set_all_leds(rgb)
+
+            # Synchronize display to a fixed-rate clock: each frame is due
+            # at next_time regardless of how long the previous one took, so
+            # the schedule doesn't drift even if individual frames run late.
             next_time += time_step
-            scheduled_times.append(next_time)
-
-            # Synchronize display to clock
-            wait_time = max(0, next_time - time.monotonic())
-            wait_times.append(wait_time)
+            wait_time = next_time - time.monotonic()
+            if wait_time < 0:
+                print(
+                    f"WARNING: frame took {compute_time * 1000:.1f} ms to "
+                    f"compute, {-wait_time * 1000:.1f} ms over the "
+                    f"{time_step * 1000:.0f} ms budget for {1 / time_step:.1f} fps"
+                )
+                wait_time = 0
             time.sleep(wait_time)
             dis.show_now()
 
-            actual_times.append(time.monotonic())
+            now = time.monotonic()
+            if now - report_start >= report_interval:
+                arr = np.array(compute_times)
+                print(
+                    f"compute time over last {now - report_start:.1f}s "
+                    f"({arr.size} frames): min={arr.min() * 1000:.2f} ms "
+                    f"max={arr.max() * 1000:.2f} ms avg={arr.mean() * 1000:.2f} ms"
+                )
+                compute_times = []
+                report_start = now
 
     except KeyboardInterrupt:
         print("Stopped.")
-
-    scheduled_times = np.array(scheduled_times) - start_time
-    actual_times = np.array(actual_times) - start_time
-
-    for sch, act, wait in zip(scheduled_times, actual_times, wait_times):
-        print(f"{sch:6.3f} {act:6.3f} {wait * 1000:6.2f} ms")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cutoff", type=float, default=80.0)
-    parser.add_argument("--nu", type=float, default=100.0, help="viscosity")
+    parser.add_argument(
+        "--nu",
+        type=float,
+        default=150.0,
+        help="viscosity (validated stable over 120s+ continuous runtime "
+        "at the default kappa/buoyancy; lowering it raises the risk of "
+        "eventual numerical divergence - see fluidsim.py)",
+    )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
     )
-    parser.add_argument("--buoyancy", type=float, default=1.0)
-    parser.add_argument("--dt", type=float, default=0.02, help="physics timestep")
+    parser.add_argument("--buoyancy", type=float, default=0.5)
+    parser.add_argument(
+        "--brightness-divisor",
+        type=int,
+        default=2,
+        help="fixed divisor applied to all three colour channels (like "
+        "digclock's per-hour bness, but constant) - digclock's LEDs are "
+        "always pure red, so an RGB heat-map lights three channels at "
+        "once for the 'same' peak value and reads far brighter; tune by "
+        "eye on the actual display",
+    )
+    parser.add_argument(
+        "--dt", type=float, default=0.02, help="physics timestep"
+    )
     parser.add_argument(
         "--n-jacobi",
         type=int,
@@ -129,11 +205,17 @@ def parse_args():
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
     parser.add_argument(
-        "--time-step",
+        "--fps",
         type=float,
-        default=None,
-        help="seconds between LED updates (default: benchmark this machine "
-        "and pick something with headroom above the measured step cost)",
+        default=5.0,
+        help="fixed LED update rate - the loop paces itself to this clock "
+        "regardless of compute time, warning if a frame runs over budget",
+    )
+    parser.add_argument(
+        "--report-interval",
+        type=float,
+        default=60.0,
+        help="seconds between compute-time min/max/avg reports",
     )
     return parser.parse_args()
 
@@ -157,19 +239,19 @@ def main():
         n_jacobi=args.n_jacobi,
     )
 
+    time_step = 1.0 / args.fps
     step_seconds = benchmark_step(sim)
     print(
         f"measured step() time on this machine: {step_seconds * 1000:.2f} ms "
-        f"({1 / step_seconds:.1f} steps/sec)"
+        f"({1 / step_seconds:.1f} steps/sec); target is {args.fps:.1f} fps "
+        f"({time_step * 1000:.0f} ms/frame budget)"
     )
-
-    time_step = args.time_step
-    if time_step is None:
-        # Leave headroom above the measured compute cost for LED
-        # communication (set_all_leds/show_now), which isn't included in
-        # the benchmark above.
-        time_step = max(0.1, step_seconds * 2)
-        print(f"--time-step not given, using {time_step:.3f}s")
+    if step_seconds >= time_step:
+        print(
+            "WARNING: compute alone already exceeds the frame budget, before "
+            "even accounting for LED communication - expect over-budget "
+            "warnings once running, or lower --fps / --n-jacobi"
+        )
 
     with Display1593() as dis:
         run(
@@ -180,6 +262,8 @@ def main():
             args.t_hot,
             args.hot_start_time,
             time_step,
+            args.brightness_divisor,
+            args.report_interval,
         )
 
 

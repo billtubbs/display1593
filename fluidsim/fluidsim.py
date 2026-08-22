@@ -83,7 +83,9 @@ class Geometry:
         self.n = self.cx.size
 
         nbrs_full = np.loadtxt(
-            _DATA_DIR / "nearest_neighbours_1593.csv", delimiter=",", dtype=np.int64
+            _DATA_DIR / "nearest_neighbours_1593.csv",
+            delimiter=",",
+            dtype=np.int64,
         )
         dist_full = np.loadtxt(
             _DATA_DIR / "nearest_neighbour_distances_1593.csv", delimiter=","
@@ -159,9 +161,15 @@ class Geometry:
 
         rows = np.asarray(rows)
         cols = np.asarray(cols)
-        Gx = sp.coo_matrix((gx_vals, (rows, cols)), shape=(n, n)) + sp.diags(diag_gx)
-        Gy = sp.coo_matrix((gy_vals, (rows, cols)), shape=(n, n)) + sp.diags(diag_gy)
-        L = sp.coo_matrix((lap_vals, (rows, cols)), shape=(n, n)) + sp.diags(diag_lap)
+        Gx = sp.coo_matrix((gx_vals, (rows, cols)), shape=(n, n)) + sp.diags(
+            diag_gx
+        )
+        Gy = sp.coo_matrix((gy_vals, (rows, cols)), shape=(n, n)) + sp.diags(
+            diag_gy
+        )
+        L = sp.coo_matrix((lap_vals, (rows, cols)), shape=(n, n)) + sp.diags(
+            diag_lap
+        )
         return Gx.tocsr(), Gy.tocsr(), L.tocsr()
 
     def points_within_radius(self, center, radius):
@@ -300,8 +308,11 @@ class NavierStokesSim:
         T_new = fixed * Tb + free * T_new
 
         self._step_fn = ca.Function(
-            "ns_step", [u, v, T, Tb], [u_new, v_new, T_new],
-            ["u", "v", "T", "T_boundary"], ["u_next", "v_next", "T_next"],
+            "ns_step",
+            [u, v, T, Tb],
+            [u_new, v_new, T_new],
+            ["u", "v", "T", "T_boundary"],
+            ["u_next", "v_next", "T_next"],
         )
 
     def step(self, u, v, T, T_boundary):
