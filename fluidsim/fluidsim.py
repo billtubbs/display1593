@@ -327,6 +327,7 @@ class NavierStokesSim:
     def simulate(
         self,
         n_steps,
+        heater_idx=None,
         T_cold=0.0,
         T_hot=1.0,
         hot_start_time=1.0,
@@ -335,14 +336,21 @@ class NavierStokesSim:
         T0=None,
     ):
         """
-        Run the scenario: all points start at `T_cold` and stationary;
-        once `hot_start_time` seconds have elapsed, the commandeered
-        points are held at `T_hot` instead. Returns (times, U, V, Th),
-        each of shape (n_steps + 1, n_points) except `times`.
+        Run the scenario: all points start at `T_cold` and stationary.
+        Every point in `self.boundary_idx` is held at `T_cold` throughout
+        *except* those also in `heater_idx` (default: all of
+        `boundary_idx`), which switch to `T_hot` once `hot_start_time`
+        seconds have elapsed - so a subset outside `heater_idx` (e.g. a
+        cold sink) stays fixed at `T_cold` for the whole run. Returns
+        (times, U, V, Th), each of shape (n_steps + 1, n_points) except
+        `times`.
         """
         n = self.geometry.n
-        mask = np.zeros(n)
-        mask[self.boundary_idx] = 1.0
+        fixed_mask = np.zeros(n)
+        fixed_mask[self.boundary_idx] = 1.0
+        heater_mask = np.zeros(n)
+        heater_mask[self.boundary_idx if heater_idx is None else heater_idx] = 1.0
+        sink_mask = fixed_mask - heater_mask
 
         u = np.zeros(n) if u0 is None else np.array(u0, dtype=float)
         v = np.zeros(n) if v0 is None else np.array(v0, dtype=float)
@@ -356,8 +364,8 @@ class NavierStokesSim:
 
         for step in range(1, n_steps + 1):
             t = step * self.dt
-            boundary_temp = T_hot if t >= hot_start_time else T_cold
-            T_boundary = mask * boundary_temp
+            heater_temp = T_hot if t >= hot_start_time else T_cold
+            T_boundary = heater_mask * heater_temp + sink_mask * T_cold
             u, v, T = self.step(u, v, T, T_boundary)
             U[step], V[step], Th[step] = u, v, T
 

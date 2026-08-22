@@ -40,8 +40,26 @@ def parse_args():
         "--seconds", type=float, default=60.0, help="sim duration"
     )
     parser.add_argument("--heater-x", type=float, default=1000.0)
-    parser.add_argument("--heater-y", type=float, default=1000.0)
-    parser.add_argument("--heater-radius", type=float, default=200.0)
+    parser.add_argument(
+        "--heater-y",
+        type=float,
+        default=500.0,
+        help="~25%% of the ~2000-unit domain height",
+    )
+    parser.add_argument("--heater-radius", type=float, default=150.0)
+    parser.add_argument(
+        "--sink-x",
+        type=float,
+        default=0.0,
+        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
+    )
+    parser.add_argument(
+        "--sink-y",
+        type=float,
+        default=1500.0,
+        help="~75%% of the ~2000-unit domain height",
+    )
+    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -65,10 +83,15 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    boundary_idx = geo.points_within_radius(
+    heater_idx = geo.points_within_radius(
         (args.heater_x, args.heater_y), args.heater_radius
     )
-    print(f"heater patch: {boundary_idx.size} points")
+    sink_idx = geo.points_within_radius(
+        (args.sink_x, args.sink_y), args.sink_radius
+    )
+    boundary_idx = np.union1d(heater_idx, sink_idx)
+    print(f"heater patch: {heater_idx.size} points")
+    print(f"cold sink: {sink_idx.size} points")
     print(f"wall (floor/ceiling) points: {geo.wall_idx.size}")
 
     sim = NavierStokesSim(
@@ -85,6 +108,7 @@ def main():
     print(f"simulating {n_steps} steps ({args.seconds:.1f}s)...")
     times, U, V, Th = sim.simulate(
         n_steps,
+        heater_idx=heater_idx,
         T_cold=args.t_cold,
         T_hot=args.t_hot,
         hot_start_time=args.hot_start_time,

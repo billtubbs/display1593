@@ -17,6 +17,15 @@ than one. `brightness_divisor` (applied the same way as digclock's
 per-hour `bness`, just fixed rather than time-varying) scales all three
 channels down uniformly to compensate - tune it by eye on the actual
 display, this is not something that can be derived exactly.
+
+The WS28xx LEDs' actual light output is a non-linear (concave) function
+of the programmed 0-255 value - e.g. 1->2 is the single biggest jump in
+real output, with steadily diminishing returns as the value climbs toward
+255. `temperature_to_rgb` treats the colour ramp below as the *intended*
+(perceptually linear) brightness and gamma-corrects it (raising the
+normalised 0-1 value to `gamma`, ~2.2 being the usual default for these
+strips) before scaling to 0-255, so the ramp's steps look even in
+practice instead of front-loaded into the low end.
 """
 
 import argparse
@@ -29,10 +38,12 @@ from fluidsim import Geometry, NavierStokesSim
 
 # (temperature fraction, R, G, B) control points for the cold->hot ramp,
 # sampled from matplotlib's "plasma" colormap at u = 0.85 * fraction (i.e.
-# capped at plasma's u=0.85, short of its brightest/most saturated tip).
+# capped at plasma's u=0.85, short of its brightest/most saturated tip) -
+# except the cold end, deliberately darkened to near-black rather than
+# plasma's own (still fairly saturated) dark blue.
 _COLOUR_STOPS = np.array(
     [
-        [0.0, 13, 8, 135],
+        [0.0, 0, 0, 12],
         [0.2, 94, 1, 166],
         [0.4, 158, 25, 157],
         [0.6, 205, 74, 118],
@@ -42,7 +53,17 @@ _COLOUR_STOPS = np.array(
 )
 
 
-def temperature_to_rgb(T, T_cold, T_hot, brightness_divisor=1):
+def _gamma_correct(rgb_0_255, gamma):
+    """
+    Compensate for the LEDs' non-linear response: treats `rgb_0_255` as
+    the intended (perceptually linear) brightness and returns the
+    programmed value that should actually produce it.
+    """
+    normalised = np.clip(rgb_0_255, 0, 255) / 255.0
+    return (normalised**gamma) * 255.0
+
+
+def temperature_to_rgb(T, T_cold, T_hot, brightness_divisor=1, gamma=2.2):
     """Map per-LED temperature to an (n_leds, 3) uint8 RGB array."""
     span = T_hot - T_cold
     u = np.clip((T - T_cold) / span, 0.0, 1.0) if span else np.zeros_like(T)
@@ -50,7 +71,9 @@ def temperature_to_rgb(T, T_cold, T_hot, brightness_divisor=1):
     rgb = np.stack(
         [np.interp(u, stops, colours[:, c]) for c in range(3)], axis=1
     )
-    return (rgb // brightness_divisor).astype("uint8")
+    rgb = rgb / brightness_divisor
+    rgb = _gamma_correct(rgb, gamma)
+    return rgb.astype("uint8")
 
 
 def benchmark_step(sim, n_warmup=5, n_timed=20):
@@ -71,17 +94,21 @@ def benchmark_step(sim, n_warmup=5, n_timed=20):
 def run(
     dis,
     sim,
-    boundary_idx,
+    heater_idx,
+    sink_idx,
     T_cold,
     T_hot,
     hot_start_time,
     time_step,
     brightness_divisor=1,
+    gamma=2.2,
     report_interval=60.0,
 ):
     n = sim.geometry.n
-    mask = np.zeros(n)
-    mask[boundary_idx] = 1.0
+    heater_mask = np.zeros(n)
+    heater_mask[heater_idx] = 1.0
+    sink_mask = np.zeros(n)
+    sink_mask[sink_idx] = 1.0
 
     u = np.zeros(n)
     v = np.zeros(n)
@@ -98,8 +125,8 @@ def run(
     try:
         while True:
             t = step_count * sim.dt
-            boundary_temp = T_hot if t >= hot_start_time else T_cold
-            T_boundary = mask * boundary_temp
+            heater_temp = T_hot if t >= hot_start_time else T_cold
+            T_boundary = heater_mask * heater_temp + sink_mask * T_cold
 
             compute_start = time.perf_counter()
             u_next, v_next, T_next = sim.step(u, v, T, T_boundary)
@@ -127,7 +154,9 @@ def run(
                 T = np.full(n, T_cold)
                 step_count = 0
 
-            rgb = temperature_to_rgb(T, T_cold, T_hot, brightness_divisor)
+            rgb = temperature_to_rgb(
+                T, T_cold, T_hot, brightness_divisor, gamma
+            )
             compute_time = time.perf_counter() - compute_start
             compute_times.append(compute_time)
 
@@ -189,6 +218,14 @@ def parse_args():
         "eye on the actual display",
     )
     parser.add_argument(
+        "--gamma",
+        type=float,
+        default=2.2,
+        help="gamma-correction exponent compensating for the LEDs' "
+        "non-linear response (1.0 = no correction; higher values darken "
+        "low/mid brightness more while leaving near-255 mostly unchanged)",
+    )
+    parser.add_argument(
         "--dt", type=float, default=0.02, help="physics timestep"
     )
     parser.add_argument(
@@ -199,8 +236,26 @@ def parse_args():
         "accurate incompressibility)",
     )
     parser.add_argument("--heater-x", type=float, default=1000.0)
-    parser.add_argument("--heater-y", type=float, default=1000.0)
-    parser.add_argument("--heater-radius", type=float, default=200.0)
+    parser.add_argument(
+        "--heater-y",
+        type=float,
+        default=500.0,
+        help="~25%% of the ~2000-unit domain height",
+    )
+    parser.add_argument("--heater-radius", type=float, default=150.0)
+    parser.add_argument(
+        "--sink-x",
+        type=float,
+        default=0.0,
+        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
+    )
+    parser.add_argument(
+        "--sink-y",
+        type=float,
+        default=1500.0,
+        help="~75%% of the ~2000-unit domain height",
+    )
+    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -224,10 +279,15 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    boundary_idx = geo.points_within_radius(
+    heater_idx = geo.points_within_radius(
         (args.heater_x, args.heater_y), args.heater_radius
     )
-    print(f"heater patch: {boundary_idx.size} points")
+    sink_idx = geo.points_within_radius(
+        (args.sink_x, args.sink_y), args.sink_radius
+    )
+    boundary_idx = np.union1d(heater_idx, sink_idx)
+    print(f"heater patch: {heater_idx.size} points")
+    print(f"cold sink: {sink_idx.size} points")
 
     sim = NavierStokesSim(
         geo,
@@ -257,12 +317,14 @@ def main():
         run(
             dis,
             sim,
-            boundary_idx,
+            heater_idx,
+            sink_idx,
             args.t_cold,
             args.t_hot,
             args.hot_start_time,
             time_step,
             args.brightness_divisor,
+            args.gamma,
             args.report_interval,
         )
 
