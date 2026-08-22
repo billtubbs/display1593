@@ -29,11 +29,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
     parser.add_argument("--cutoff", type=float, default=80.0)
-    parser.add_argument("--nu", type=float, default=150.0, help="viscosity")
+    parser.add_argument(
+        "--nu",
+        type=float,
+        default=300.0,
+        help="viscosity - validated stable over 80s+ at buoyancy=1.0 with "
+        "the heater at the physical bottom of the display; see "
+        "play_fluidsim.py's --nu help for why this is higher than you "
+        "might expect",
+    )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
     )
-    parser.add_argument("--buoyancy", type=float, default=0.5)
+    parser.add_argument("--buoyancy", type=float, default=1.0)
     parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument("--n-jacobi", type=int, default=40)
     parser.add_argument(
@@ -43,8 +51,9 @@ def parse_args():
     parser.add_argument(
         "--heater-y",
         type=float,
-        default=500.0,
-        help="~25%% of the ~2000-unit domain height",
+        default=1500.0,
+        help="~25%% up from the bottom of the physical display (centres_y "
+        "follows image/screen convention - high y is physically low)",
     )
     parser.add_argument("--heater-radius", type=float, default=150.0)
     parser.add_argument(
@@ -56,8 +65,9 @@ def parse_args():
     parser.add_argument(
         "--sink-y",
         type=float,
-        default=1500.0,
-        help="~75%% of the ~2000-unit domain height",
+        default=500.0,
+        help="~25%% down from the top of the physical display (centres_y "
+        "follows image/screen convention - low y is physically high)",
     )
     parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)

@@ -198,15 +198,19 @@ def parse_args():
     parser.add_argument(
         "--nu",
         type=float,
-        default=150.0,
-        help="viscosity (validated stable over 120s+ continuous runtime "
-        "at the default kappa/buoyancy; lowering it raises the risk of "
-        "eventual numerical divergence - see fluidsim.py)",
+        default=300.0,
+        help="viscosity (validated stable over 80s+ at buoyancy=1.0 with "
+        "the heater at the physical bottom of the display; values from "
+        "150-260 all diverged within 15-25s at this heater/sink layout - "
+        "the real LED point cloud isn't uniform, so a heater near one "
+        "region can be much less numerically forgiving than another. "
+        "Raise --buoyancy rather than lowering --nu if you want the "
+        "effect to appear sooner)",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
     )
-    parser.add_argument("--buoyancy", type=float, default=0.5)
+    parser.add_argument("--buoyancy", type=float, default=1.0)
     parser.add_argument(
         "--brightness-divisor",
         type=int,
@@ -239,8 +243,9 @@ def parse_args():
     parser.add_argument(
         "--heater-y",
         type=float,
-        default=500.0,
-        help="~25%% of the ~2000-unit domain height",
+        default=1500.0,
+        help="~25%% up from the bottom of the physical display (centres_y "
+        "follows image/screen convention - high y is physically low)",
     )
     parser.add_argument("--heater-radius", type=float, default=150.0)
     parser.add_argument(
@@ -252,8 +257,9 @@ def parse_args():
     parser.add_argument(
         "--sink-y",
         type=float,
-        default=1500.0,
-        help="~75%% of the ~2000-unit domain height",
+        default=500.0,
+        help="~25%% down from the top of the physical display (centres_y "
+        "follows image/screen convention - low y is physically high)",
     )
     parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)

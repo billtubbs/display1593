@@ -11,9 +11,19 @@ The layout tiles left-right as a 2000-wide torus in x (confirmed against
 nearest_neighbour_distances_1593.csv: wrapped point-to-point distances
 computed with that period reproduce the recorded distances exactly). y
 does NOT wrap: the domain represents a vertical container of fluid - open/
-free at top and bottom (gravity acts in -y), wrapping only side to side,
-like a cross-section of an ocean. `Geometry` builds, once, from the
-precomputed 18-nearest-neighbour tables:
+free at top and bottom, wrapping only side to side, like a cross-section
+of an ocean. `Geometry` builds, once, from the precomputed
+18-nearest-neighbour tables:
+
+Note on the y-axis direction: `centres_y` follows the image/screen
+convention, not the math/plot one - confirmed empirically by running a
+top-red/bottom-blue test image through `Display1593.convert_image()` and
+checking which `centres_y` range came back which colour (see the
+conversation this was found in, or just rerun that check if you doubt
+it): low `centres_y` is the TOP of the physical display, high `centres_y`
+is the BOTTOM. Gravity therefore acts in +y here, and buoyancy (hot fluid
+rising) acts in -y - the reverse of what you'd assume from a normal
+math/plot y-axis.
 
 - a pruned neighbour graph keeping only pairs closer than `cutoff` (default
   80 units - chosen so most points keep a full ~6-neighbour first ring
@@ -32,9 +42,10 @@ Simulation
 ----------
 `NavierStokesSim` uses those operators to build one CasADi function that
 advances the whole grid's (u, v, T) state by one explicit timestep:
-advect + diffuse + buoyancy-force (hot fluid rises, buoyancy acts in +y)
-the provisional velocity, project it onto an (approximately)
-divergence-free field via a fixed number of Jacobi sweeps against `L`,
+advect + diffuse + buoyancy-force (hot fluid rises, buoyancy acts in -y -
+see the y-axis note above) the provisional velocity, project it onto an
+(approximately) divergence-free field via a fixed number of Jacobi sweeps
+against `L`,
 diffuse/advect temperature, then enforce boundary conditions: zero
 vertical velocity at `wall_idx` (free-slip floor/ceiling), and zero
 velocity plus an exogenous, time-varying temperature at a fixed,
@@ -198,8 +209,10 @@ class NavierStokesSim:
     Function for fast repeated evaluation.
 
     The domain is a vertical container: periodic side-to-side (x), open
-    top and bottom (y), with gravity acting in -y (so buoyancy from a
-    temperature above `T_ref` acts in +y - hot fluid rises). `wall_idx`
+    top and bottom (y), with gravity acting in +y (`centres_y` follows the
+    image/screen convention - low y is the top of the physical display,
+    high y is the bottom - see the module docstring), so buoyancy from a
+    temperature above `T_ref` acts in -y - hot fluid rises. `wall_idx`
     (from `geometry`, the top/bottom edge points) get a free-slip floor/
     ceiling condition: vertical velocity pinned to zero, horizontal
     velocity free. `boundary_idx` is a separate, caller-chosen set of
@@ -261,9 +274,13 @@ class NavierStokesSim:
             adv_u = u * (Gx @ u) + v * (Gy @ u)
             adv_v = u * (Gx @ v) + v * (Gy @ v)
             adv_T = u * (Gx @ T) + v * (Gy @ T)
+            # centres_y follows the image/screen convention (low y = top,
+            # high y = bottom - see the module docstring), so "up" is -y
+            # and hot fluid's buoyant acceleration is subtracted here, not
+            # added.
             buoyancy = buoyancy_coeff * (T - T_ref)
             du = -adv_u + nu * (L @ u)
-            dv = -adv_v + nu * (L @ v) + buoyancy
+            dv = -adv_v + nu * (L @ v) - buoyancy
             dT = -adv_T + kappa * (L @ T)
             return du, dv, dT
 
