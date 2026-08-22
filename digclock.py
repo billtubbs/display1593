@@ -42,12 +42,16 @@ display hardware, paired with an `initialized` boolean mask so every LED
 gets sent at least once on the very first pass, without needing a sentinel
 value in `smem_prev` itself.
 
-On startup, the hour digits and the tens-of-minutes digit are painted into
-`smem` once. Then, in the main loop: the ones-of-minutes digit is painted,
-any changed LEDs are pushed to the display, and the colon dots are flashed
-once per second until the minute changes. At that point the ones-of-minutes
-digit (and, when relevant, the higher digit positions) are cleared and
-repainted for the new time.
+On startup, all five digit positions are painted into `smem` once and shown.
+The main loop then runs once per wall-clock second, driven by a
+`SecondTicker`: on each iteration it stages (but does not yet display) the
+colon-dot state for the upcoming second, and, when the upcoming second is
+about to roll the minute over, also stages repainted digits for the new
+time. Only after all of that staging is done does the loop wait for the
+tick and call `dis.show_now()` - so the one call that actually makes the
+display update happens with nothing else between it and the tick, and a
+minute rollover's digit change and dot toggle land in the same hardware
+refresh instead of two separate ones.
 """
 
 import logging
@@ -114,7 +118,7 @@ BCYCLE = {
 }
 
 # Segments 0-6 are cleared when repainting a digit position; segment 7
-# (colon dots, position 0 only) is handled separately by flash_dots().
+# (colon dots, position 0 only) is handled separately by dot_rgb().
 CLEARABLE_SEGMENTS = range(7)
 
 _EMPTY_IDX = np.empty(0, dtype=np.int64)
@@ -201,8 +205,15 @@ def clear_digit(smem, clear_idx):
 
 def push_changes(dis, smem, smem_prev, initialized):
     """
-    Send only the LEDs whose value changed since the last push (or that
-    have never been pushed at all).
+    Stage any LEDs whose value changed since the last push (or that have
+    never been pushed at all).
+
+    This only transfers the new values to the microcontrollers (set_leds);
+    it does NOT call dis.show_now(). Staging is the slow part (a serial
+    write per changed LED), so callers do it ahead of a tick and trigger
+    the actual display update with a bare show_now() right after
+    SecondTicker.wait_for_tick() returns, keeping that gap as small as
+    possible.
     """
     changed = np.nonzero((smem != smem_prev) | ~initialized)[0]
     if changed.size > 0:
@@ -211,23 +222,33 @@ def push_changes(dis, smem, smem_prev, initialized):
         dis.set_leds(changed, rgb_array)
         smem_prev[changed] = smem[changed]
         initialized[changed] = True
-        dis.show_now()
 
 
-def flash_dots(dis, points_idx, points_vals, bness, m):
-    """Flash the colon dots once per second until the minute changes."""
-    t = datetime.now().time()
-    s = t.second
-    dot_rgb = np.zeros((points_idx.size, 3), dtype="uint8")
+class SecondTicker:
+    """
+    Tracks wall-clock seconds and lets callers busy-wait for the next tick.
 
-    while t.minute == m:
-        while datetime.now().time().second == s:
+    Centralizing this here means every part of the script that needs to
+    know "has the next second arrived yet" advances off the same clock,
+    instead of each sampling datetime.now() independently.
+    """
+
+    def __init__(self):
+        self.time = datetime.now().time()
+
+    def wait_for_tick(self):
+        """Busy-wait until the wall-clock second changes, then return the new time."""
+        while datetime.now().time().second == self.time.second:
             pass
-        dot_rgb[:, 0] = (s % 2) * (points_vals // bness)
-        dis.set_leds(points_idx, dot_rgb)
-        dis.show_now()
-        t = datetime.now().time()
-        s = t.second
+        self.time = datetime.now().time()
+        return self.time
+
+
+def dot_rgb(points_vals, bness, second):
+    """RGB values for the colon dots for a given wall-clock second (on/off toggle)."""
+    rgb = np.zeros((points_vals.size, 3), dtype="uint8")
+    rgb[:, 0] = (second % 2) * (points_vals // bness)
+    return rgb
 
 
 def hour_digits(hr):
@@ -250,19 +271,21 @@ def main():
     initialized = np.zeros(N_LEDS, dtype=bool)
 
     with Display1593() as dis:
-        t = datetime.now().time()
+        ticker = SecondTicker()
+        t = ticker.wait_for_tick()
         hr, m = t.hour, t.minute
         d4, d3 = hour_digits(hr)
         d2, d1 = minute_digits(m)
 
         bness = BCYCLE[hr % 24]
 
-        # Initial paint of points, hours, and tens-of-minutes.
+        # Initial paint of points and all four digits.
         # (smem starts at 0, so accumulate vs. overwrite is equivalent here.)
         apply_segments(smem, processed[0], range(2), bness, accumulate=True)
         apply_segments(smem, processed[1], D_CHARS[d4], bness, accumulate=True)
         apply_segments(smem, processed[2], D_CHARS[d3], bness, accumulate=True)
         apply_segments(smem, processed[3], D_CHARS[d2], bness, accumulate=True)
+        apply_segments(smem, processed[4], D_CHARS[d1], bness, accumulate=True)
 
         # Colon dot LEDs/values, precomputed once for the flashing loop.
         points_idx = np.concatenate(
@@ -272,46 +295,62 @@ def main():
             [processed[0][n][1] for n in range(2) if processed[0][n][1].size]
         )
 
+        # First frame is a special case: there's no earlier tick to stage
+        # ahead of, since we needed *this* tick to know what to paint.
+        push_changes(dis, smem, smem_prev, initialized)
+        dis.show_now()
+        logger.info("%2d:%2d", hr, m)
+
         while True:
-            apply_segments(
-                smem, processed[4], D_CHARS[d1], bness, accumulate=True
-            )
-            push_changes(dis, smem, smem_prev, initialized)
+            next_second = (t.second + 1) % 60
 
-            t = datetime.now().time()
-            hr, m = t.hour, t.minute
-            logger.info("%2d:%2d", hr, m)
+            if next_second == 0:
+                m = (m + 1) % 60
+                if m == 0:
+                    hr = (hr + 1) % 24
 
-            flash_dots(dis, points_idx, points_vals, bness, m)
-
-            m = (m + 1) % 60
-            if m == 0:
-                hr = (hr + 1) % 24
-
-            d1 = m % 10
-
-            if d1 == 0:
-                d2 = m // 10
-                clear_digit(smem, clear_idx[3])
+                d1 = m % 10
+                clear_digit(smem, clear_idx[4])
                 apply_segments(
-                    smem, processed[3], D_CHARS[d2], bness, accumulate=True
+                    smem, processed[4], D_CHARS[d1], bness, accumulate=True
                 )
 
-            if m == 0:
-                bness = BCYCLE[hr % 24]
-                d4, d3 = hour_digits(hr)
+                if d1 == 0:
+                    d2 = m // 10
+                    clear_digit(smem, clear_idx[3])
+                    apply_segments(
+                        smem, processed[3], D_CHARS[d2], bness, accumulate=True
+                    )
 
-                clear_digit(smem, clear_idx[2])
-                apply_segments(
-                    smem, processed[2], D_CHARS[d3], bness, accumulate=True
-                )
+                if m == 0:
+                    bness = BCYCLE[hr % 24]
+                    d4, d3 = hour_digits(hr)
 
-                clear_digit(smem, clear_idx[1])
-                apply_segments(
-                    smem, processed[1], D_CHARS[d4], bness, accumulate=True
-                )
+                    clear_digit(smem, clear_idx[2])
+                    apply_segments(
+                        smem, processed[2], D_CHARS[d3], bness, accumulate=True
+                    )
 
-            clear_digit(smem, clear_idx[4])
+                    clear_digit(smem, clear_idx[1])
+                    apply_segments(
+                        smem, processed[1], D_CHARS[d4], bness, accumulate=True
+                    )
+
+                # Stage the new digits now, ahead of the tick that will
+                # make them current.
+                push_changes(dis, smem, smem_prev, initialized)
+
+            # Stage the colon-dot state for the second we're about to
+            # enter, then wait for it to actually arrive before showing
+            # anything - a minute rollover's digit change and dot toggle
+            # land in the same show_now().
+            dis.set_leds(points_idx, dot_rgb(points_vals, bness, next_second))
+
+            t = ticker.wait_for_tick()
+            dis.show_now()
+
+            if next_second == 0:
+                logger.info("%2d:%2d", hr, m)
 
 
 if __name__ == "__main__":
