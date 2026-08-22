@@ -1,7 +1,7 @@
 """Helper for entry-point scripts to set up logging.
 
 Call configure_root_logging() once, near the top of a script that is
-run directly (not imported as a library) - e.g. digclock.py or
+run directly (not imported as a library) - e.g. show_digclock.py or
 schelling.py. It attaches a single, size-capped rotating file handler
 to the *root* logger rather than to the script's own module logger.
 

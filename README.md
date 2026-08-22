@@ -42,7 +42,7 @@ with Display1593() as dis:
 
 ## Current projects in this repository
 
-- `digclock.py` - displays a digital clock on the LED display
+- `show_digclock.py` - displays a digital clock on the LED display
 - `schelling.py` - runs a Schelling segregation simulation on the display
 - `comm_led_test.py` - low-level communication and LED testing helper
 - `frame_display_speed_test.py` - timing and performance checks for display updates
@@ -60,7 +60,7 @@ After=multi-user.target
 [Service]
 Type=idle
 User=pi
-ExecStart=/usr/bin/python3 /home/pi/code/display1593/digclock.py
+ExecStart=/usr/bin/python3 /home/pi/code/display1593/show_digclock.py
 Restart=always
 RestartSec=5
 
@@ -100,7 +100,7 @@ sudo systemctl start myscript.service
 To watch the script's own log file:
 
 ```bash
-tail -f /home/pi/code/display1593/digclock.log
+tail -f /home/pi/code/display1593/show_digclock.log
 ```
 
 ## Current development focus
