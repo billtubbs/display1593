@@ -119,6 +119,8 @@ def run(
     print("Starting...")
     step_count = 0
     compute_times = []
+    max_dT_history = []
+    max_dvel_history = []
     report_start = time.monotonic()
     next_time = time.monotonic()
 
@@ -136,6 +138,13 @@ def run(
                 and np.isfinite(v_next).all()
                 and np.isfinite(T_next).all()
             ):
+                # Per-step change is an early warning sign of instability:
+                # a blow-up typically shows this growing sharply for
+                # several steps before anything actually turns to NaN.
+                max_dT_history.append(np.abs(T_next - T).max())
+                max_dvel_history.append(
+                    np.hypot(u_next - u, v_next - v).max()
+                )
                 u, v, T = u_next, v_next, T_next
                 step_count += 1
             else:
@@ -185,7 +194,19 @@ def run(
                     f"({arr.size} frames): min={arr.min() * 1000:.2f} ms "
                     f"max={arr.max() * 1000:.2f} ms avg={arr.mean() * 1000:.2f} ms"
                 )
+                if max_dT_history:
+                    dT_arr = np.array(max_dT_history)
+                    dvel_arr = np.array(max_dvel_history)
+                    print(
+                        f"max per-step change over last {now - report_start:.1f}s: "
+                        f"|dT| min={dT_arr.min():.4f} max={dT_arr.max():.4f} "
+                        f"avg={dT_arr.mean():.4f}; "
+                        f"|dvel| min={dvel_arr.min():.4f} max={dvel_arr.max():.4f} "
+                        f"avg={dvel_arr.mean():.4f}"
+                    )
                 compute_times = []
+                max_dT_history = []
+                max_dvel_history = []
                 report_start = now
 
     except KeyboardInterrupt:

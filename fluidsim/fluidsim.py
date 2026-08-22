@@ -366,7 +366,9 @@ class NavierStokesSim:
         fixed_mask = np.zeros(n)
         fixed_mask[self.boundary_idx] = 1.0
         heater_mask = np.zeros(n)
-        heater_mask[self.boundary_idx if heater_idx is None else heater_idx] = 1.0
+        heater_mask[
+            self.boundary_idx if heater_idx is None else heater_idx
+        ] = 1.0
         sink_mask = fixed_mask - heater_mask
 
         u = np.zeros(n) if u0 is None else np.array(u0, dtype=float)
