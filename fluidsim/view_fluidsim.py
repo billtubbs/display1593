@@ -163,8 +163,6 @@ def main():
         buoyancy_coeff=args.buoyancy,
         dt=args.dt,
         n_jacobi=args.n_jacobi,
-        T_min=args.t_cold,
-        T_max=args.t_hot,
     )
 
     n = geo.n

@@ -252,12 +252,7 @@ class NavierStokesSim:
         T_ref=0.0,
         dt=0.05,
         n_jacobi=40,
-        T_min=None,
-        T_max=None,
     ):
-        # T_min/T_max, if given, clamp the free field's T each step -
-        # curbs an advection/buoyancy feedback loop that otherwise causes
-        # runaway overshoot at a fixed patch's edge (e.g. the cold sink).
         self.geometry = geometry
         self.boundary_idx = np.asarray(boundary_idx)
         self.dt = dt
@@ -348,8 +343,6 @@ class NavierStokesSim:
         u_new = free * u_new
         v_new = free * v_new
         T_new = fixed * Tb + free * T_new
-        if T_min is not None and T_max is not None:
-            T_new = ca.fmin(ca.fmax(T_new, T_min), T_max)
 
         self._step_fn = ca.Function(
             "ns_step",
