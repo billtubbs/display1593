@@ -138,6 +138,26 @@ class Geometry:
                     "non-collinear neighbours per point"
                 )
             neighbours.append((js, dx, dy))
+
+        # nearest_neighbours_1593.csv is a plain per-point k-NN table, not
+        # an enforced-mutual one, so cutoff-pruning could in principle
+        # leave one-way pairs (i lists j but not vice versa) - Gx/Gy/L are
+        # built assuming a symmetric graph, so fail loudly rather than
+        # silently build inconsistent operators.
+        neighbour_sets = [set(js.tolist()) for js, _, _ in neighbours]
+        one_way = [
+            (i, j)
+            for i, (js, _, _) in enumerate(neighbours)
+            for j in js.tolist()
+            if i not in neighbour_sets[j]
+        ]
+        if one_way:
+            raise ValueError(
+                f"{len(one_way)} one-way neighbour pair(s) after pruning "
+                f"(cutoff={cutoff}), e.g. {one_way[:5]} - the "
+                "gradient/Laplacian operators assume a symmetric graph"
+            )
+
         self.wall_idx = np.nonzero(wall_mask)[0]
         return neighbours
 
@@ -232,7 +252,12 @@ class NavierStokesSim:
         T_ref=0.0,
         dt=0.05,
         n_jacobi=40,
+        T_min=None,
+        T_max=None,
     ):
+        # T_min/T_max, if given, clamp the free field's T each step -
+        # curbs an advection/buoyancy feedback loop that otherwise causes
+        # runaway overshoot at a fixed patch's edge (e.g. the cold sink).
         self.geometry = geometry
         self.boundary_idx = np.asarray(boundary_idx)
         self.dt = dt
@@ -323,6 +348,8 @@ class NavierStokesSim:
         u_new = free * u_new
         v_new = free * v_new
         T_new = fixed * Tb + free * T_new
+        if T_min is not None and T_max is not None:
+            T_new = ca.fmin(ca.fmax(T_new, T_min), T_max)
 
         self._step_fn = ca.Function(
             "ns_step",
