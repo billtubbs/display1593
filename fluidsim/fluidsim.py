@@ -89,6 +89,7 @@ class Geometry:
     """
 
     def __init__(self, cutoff=DEFAULT_CUTOFF):
+        self.cutoff = cutoff
         self.cx = np.asarray(centres_x, dtype=float)
         self.cy = np.asarray(centres_y, dtype=float)
         self.n = self.cx.size
@@ -103,6 +104,9 @@ class Geometry:
         )
 
         neighbours = self._pruned_neighbours(nbrs_full, dist_full, cutoff)
+        # Kept around so add_ghost_boundary() can extend it later without
+        # redoing the KDTree/pruning work.
+        self._neighbours = neighbours
         self.Gx, self.Gy, self.L = self._build_operators(neighbours)
         self.L_diag = np.asarray(self.L.diagonal())
 
@@ -121,16 +125,27 @@ class Geometry:
         keep = dist_full < cutoff
         neighbours = []
         wall_mask = np.zeros(self.n, dtype=bool)
+        # The specific cross-edge neighbour(s) pruned from each point that
+        # loses one - i.e. exactly the real point(s), and the true wrapped
+        # (dx, dy) to them, that add_ghost_boundary() uses to place a
+        # ghost. Only points with at least one discarded pair appear here.
+        self._y_wrap_pruned = {}
         for i in range(self.n):
-            js = nbrs_full[i, keep[i]]
-            dy_raw = self.cy[js] - self.cy[i]
-            dy = _wrap(dy_raw)
-            no_y_wrap = np.abs(dy_raw - dy) < PERIOD / 4
+            js_all = nbrs_full[i, keep[i]]
+            dy_raw = self.cy[js_all] - self.cy[i]
+            dy_all = _wrap(dy_raw)
+            no_y_wrap = np.abs(dy_raw - dy_all) < PERIOD / 4
+            dx_all = _wrap(self.cx[js_all] - self.cx[i])
             if not no_y_wrap.all():
                 wall_mask[i] = True
-            js = js[no_y_wrap]
-            dy = dy[no_y_wrap]
-            dx = _wrap(self.cx[js] - self.cx[i])
+                self._y_wrap_pruned[i] = (
+                    js_all[~no_y_wrap],
+                    dx_all[~no_y_wrap],
+                    dy_all[~no_y_wrap],
+                )
+            js = js_all[no_y_wrap]
+            dy = dy_all[no_y_wrap]
+            dx = dx_all[no_y_wrap]
             if js.size < 2:
                 raise ValueError(
                     f"point {i} has fewer than 2 neighbours after pruning "
@@ -169,6 +184,22 @@ class Geometry:
         diag_lap = np.zeros(n)
 
         for i, (js, dx, dy) in enumerate(neighbours):
+            if js.size == 0:
+                # A no-neighbour point (an off-screen ghost added by
+                # add_ghost_boundary() - never a real point, which always
+                # has >=2 neighbours per _pruned_neighbours). Ghosts are
+                # always externally fixed (NavierStokesSim's fixed_mask),
+                # so they never need a real gradient/Laplacian row - no
+                # off-diagonal entries. diag_lap must still be nonzero
+                # though: NavierStokesSim's Jacobi pressure loop divides
+                # by L_diag every iteration, *before* masking ghost
+                # contributions out via `free` - a zero there produces
+                # NaN/Inf that leaks into real neighbours through L@p on
+                # the very next iteration, well before anything masks it.
+                # diag_gx/diag_gy can stay zero; only L_diag is ever used
+                # as a divisor.
+                diag_lap[i] = -1.0
+                continue
             r2 = dx**2 + dy**2
             w = 1.0 / r2
 
@@ -210,27 +241,133 @@ class Geometry:
         dy = self.cy - cy0
         return np.nonzero(np.hypot(dx, dy) <= radius)[0]
 
-    def bottom_band(self, height):
+    def add_ghost_boundary(self, offset=None, layout="mirror", spacing=None):
         """
-        Indices of points within `height` of the bottom edge.
+        Add off-screen "ghost" points just beyond the top and bottom
+        edges, and wire them to nearby real edge points - so a fixed
+        hot/cold boundary condition can be applied at the ghosts instead
+        of on any real, displayed LED.
 
-        Spans the full (periodic) width, unlike `points_within_radius` -
-        centres_y follows the image/screen convention (see the module
-        docstring), so the bottom edge is where cy is largest.
+        `layout` controls where the ghosts sit:
+          - "mirror" (default): one ghost per real point in
+            `self.wall_idx`, directly `offset` beyond it - so the ghost
+            row has the same (irregular) x-spacing as the real edge.
+          - "grid": an evenly-spaced row of ghosts, `spacing` apart
+            (default `self.cutoff * 0.75`), at `offset` beyond each edge
+            - a perfectly flat wall, independent of the real point
+            cloud's own irregular spacing.
+        Neither is a full domain-height (~2000) shift: cy's range is
+        ~[2.5, 1999.7], i.e. the domain height matches the period used
+        for x-wrapping, so a full-height shift would land a ghost almost
+        exactly among the real points on the *opposite* edge (not
+        "off-screen" at all).
+
+        Connectivity is many-to-many either way, matching how every
+        other point in the graph gets its neighbours: each real point in
+        `self.wall_idx` is wired to *every* ghost within `self.cutoff`
+        (not just "its own"), so a real edge point typically ends up
+        with several ghost neighbours, and a ghost is typically
+        referenced by several real points.
+
+        `offset=DEFAULT_CUTOFF` (80) with `layout="mirror"` and one
+        ghost per point (the old 1:1 wiring, since replaced by the
+        many-to-many search above) was the only variant, of several
+        tried, with zero divergence over a 300s test - see TODO.md for
+        what didn't work (smaller offsets, and reusing each point's
+        *actual* recorded cross-edge neighbour distance(s) in
+        `self._y_wrap_pruned`, which gives multiple ghosts per point via
+        a different mechanism than this many-to-many search).
+
+        Ghosts get an empty neighbour list (see the `js.size == 0` guard
+        in `_build_operators`) - they're always externally fixed via
+        NavierStokesSim's boundary_idx/fixed_mask, never solved for, so
+        they only ever need to act as a *column* in a real neighbour's
+        row. Mutates self in place (cx, cy, n, Gx, Gy, L, L_diag all
+        grow); call once, before constructing NavierStokesSim.
+
+        Returns (bottom_ghost_idx, top_ghost_idx) - pass these as
+        heater_idx/sink_idx. Callers must slice state arrays down to
+        the original real point count before mapping to LED colour -
+        the ghosts are never part of the real, displayed 1593 LEDs.
         """
-        return np.nonzero(self.cy > self.cy.max() - height)[0]
+        if offset is None:
+            # Must be comfortably less than self.cutoff: the many-to-many
+            # search below uses a strict "<" against self.cutoff, so
+            # offset >= cutoff means a ghost isn't even within range of
+            # the real point it was generated from, let alone any others.
+            offset = self.cutoff / 2
+        if layout == "mirror":
+            ghost_cx = self.cx[self.wall_idx].copy()
+            is_bottom = self.cy[self.wall_idx] > self.cy.mean()
+            ghost_cy = np.where(
+                is_bottom,
+                self.cy[self.wall_idx] + offset,
+                self.cy[self.wall_idx] - offset,
+            )
+        elif layout == "grid":
+            if spacing is None:
+                spacing = self.cutoff * 0.75
+            n_cols = max(1, round(PERIOD / spacing))
+            xs = np.arange(n_cols) * PERIOD / n_cols
+            ghost_cx = np.concatenate([xs, xs])
+            is_bottom = np.concatenate(
+                [np.ones(n_cols, dtype=bool), np.zeros(n_cols, dtype=bool)]
+            )
+            ghost_cy = np.where(
+                is_bottom, self.cy.max() + offset, self.cy.min() - offset
+            )
+        else:
+            raise ValueError(f"unknown layout {layout!r}")
 
-    def top_band(self, height):
-        """Indices of points within `height` of the top edge (cy smallest)."""
-        return np.nonzero(self.cy < self.cy.min() + height)[0]
+        n_ghost = ghost_cx.size
+        ghost_idx = self.n + np.arange(n_ghost)
+        bottom_ghost_idx = ghost_idx[is_bottom]
+        top_ghost_idx = ghost_idx[~is_bottom]
+
+        neighbours = self._neighbours
+        for real_i in self.wall_idx:
+            dx = _wrap(ghost_cx - self.cx[real_i])
+            # Ghosts are deliberately placed off the (open, non-periodic)
+            # y-domain, so their y-offset is a plain difference, not
+            # _wrap()'d like a real neighbour's would be.
+            dy = ghost_cy - self.cy[real_i]
+            dist = np.hypot(dx, dy)
+            near = dist < self.cutoff
+            if not near.any():
+                continue
+            js, old_dx, old_dy = neighbours[real_i]
+            neighbours[real_i] = (
+                np.concatenate([js, ghost_idx[near]]),
+                np.concatenate([old_dx, dx[near]]),
+                np.concatenate([old_dy, dy[near]]),
+            )
+
+        empty = (np.array([], dtype=np.int64), np.array([]), np.array([]))
+        neighbours.extend([empty] * n_ghost)
+
+        self.cx = np.concatenate([self.cx, ghost_cx])
+        self.cy = np.concatenate([self.cy, ghost_cy])
+        self.n = self.n + n_ghost
+        self._neighbours = neighbours
+        self.Gx, self.Gy, self.L = self._build_operators(neighbours)
+        self.L_diag = np.asarray(self.L.diagonal())
+        return bottom_ghost_idx, top_ghost_idx
 
 
 def _to_casadi_sparse(mat):
     """scipy.sparse matrix -> constant casadi.DM with the same sparsity/values."""
     coo = mat.tocoo()
     n, m = coo.shape
+    # invert_mapping=False: `mapping[k]` is where our k-th (row,col,data)
+    # triplet lands in CasADi's internal (column-major) storage order, so
+    # `data[mapping]` reindexes our values into that order. Confirmed by
+    # direct comparison against the dense scipy matrix - True silently
+    # produced a wrong (but plausible-looking) matrix for some sparsity
+    # patterns (e.g. rows with a single nonzero, as added by
+    # Geometry.add_ghost_boundary()) while happening to still match for
+    # the original 1593-point matrix, which is why this went unnoticed.
     pattern, mapping = ca.Sparsity.triplet(
-        n, m, coo.row.tolist(), coo.col.tolist(), True
+        n, m, coo.row.tolist(), coo.col.tolist(), False
     )
     data = np.asarray(coo.data)[np.asarray(mapping)]
     return ca.DM(pattern, data.tolist())

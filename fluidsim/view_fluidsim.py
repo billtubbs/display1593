@@ -73,18 +73,29 @@ def parse_args():
         help="sim duration - default is 1 simulated hour, to reproduce "
         "the kind of long-run drift only seen on an overnight display run",
     )
+    parser.add_argument("--heater-x", type=float, default=1000.0)
     parser.add_argument(
-        "--heater-band-height",
+        "--heater-y",
         type=float,
-        default=150.0,
-        help="height of the full-width heated band at the bottom edge",
+        default=1500.0,
+        help="~25%% up from the bottom of the physical display (centres_y "
+        "follows image/screen convention - high y is physically low)",
+    )
+    parser.add_argument("--heater-radius", type=float, default=150.0)
+    parser.add_argument(
+        "--sink-x",
+        type=float,
+        default=0.0,
+        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
     )
     parser.add_argument(
-        "--sink-band-height",
+        "--sink-y",
         type=float,
-        default=150.0,
-        help="height of the full-width cooled band at the top edge",
+        default=500.0,
+        help="~25%% down from the top of the physical display (centres_y "
+        "follows image/screen convention - low y is physically high)",
     )
+    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -131,11 +142,15 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    heater_idx = geo.bottom_band(args.heater_band_height)
-    sink_idx = geo.top_band(args.sink_band_height)
+    heater_idx = geo.points_within_radius(
+        (args.heater_x, args.heater_y), args.heater_radius
+    )
+    sink_idx = geo.points_within_radius(
+        (args.sink_x, args.sink_y), args.sink_radius
+    )
     boundary_idx = np.union1d(heater_idx, sink_idx)
-    print(f"heater band: {heater_idx.size} points")
-    print(f"cold band: {sink_idx.size} points")
+    print(f"heater patch: {heater_idx.size} points")
+    print(f"cold sink: {sink_idx.size} points")
     print(f"wall (floor/ceiling) points: {geo.wall_idx.size}")
 
     sim = NavierStokesSim(

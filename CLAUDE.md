@@ -147,8 +147,10 @@ layout geometry).
   the precomputed nearest-neighbour tables (x wraps as a period-2000 torus,
   y does not - it's a vertical container, open top/bottom) and the discrete
   operators derived from it (`Gx`, `Gy` gradient, `L` graph Laplacian), plus
-  point-selection helpers (`points_within_radius`, `bottom_band`/`top_band`)
-  for choosing which points a caller commandeers as boundary conditions.
+  point-selection helpers for choosing which points a caller commandeers as
+  boundary conditions: `points_within_radius` (a circular patch) and
+  `add_ghost_boundary` (off-screen points just beyond the real top/bottom
+  edges - see TODO.md; not yet validated enough to be the default).
   `NavierStokesSim` compiles one CasADi `Function` that advects/diffuses/
   buoys velocity+temperature with RK4, pressure-projects via Jacobi sweeps
   against `L`, and applies boundary conditions (free-slip top/bottom,
@@ -156,25 +158,31 @@ layout geometry).
   y-axis convention**: `centres_y` follows image/screen convention (low y =
   physical top), so gravity/buoyancy signs are inverted relative to a normal
   math y-axis - see the module docstring before touching sign conventions
-  here.
+  here. `_to_casadi_sparse`'s scipy->CasADi conversion had a real,
+  previously-undetected bug (wrong `invert_mapping` value, silently
+  corrupting Gx/Gy/L for some sparsity patterns) - fixed; see its comment
+  before changing that function.
 - **`play_fluidsim.py`** - runs the sim live and pushes each frame straight
   to the LED display (temperature -> colour via a capped "plasma"-colormap
   ramp, gamma-corrected for the LEDs' non-linear response). Self-heals from
   numerical blow-up (resets to the cold initial state on NaN/Inf) since it's
-  meant to run unattended. The heater/sink are full-width top/bottom bands
-  (`Geometry.bottom_band`/`top_band`, sized by `--heater-band-height`/
-  `--sink-band-height`) - a Rayleigh-Benard-style layout chosen over small
-  circular patches because buoyancy then acts across the whole width at
-  once, reaching a fully-developed-looking flow in a few minutes of real
-  time instead of hours, with no change to `nu`/`kappa`/`buoyancy`/`dt`/fps
-  (i.e. not a timelapse - the same physics just organizes the whole display
-  instead of a small region). Most physics/appearance knobs (`--nu`,
-  `--kappa`, `--buoyancy`, `--brightness-divisor`, `--gamma`, `--fps`) are
-  CLI flags - see their `--help` text for tuned-by-eye defaults and
-  stability notes. `nu`, `buoyancy`, and `kappa` were each found (via
-  `view_fluidsim.py` experiments) to be fairly close to a joint numerical
-  stability limit - don't assume raising one has free headroom without
-  testing offline first.
+  meant to run unattended. The heater/sink are small circular patches
+  (`points_within_radius`, positioned via `--heater-x/-y/-radius`/
+  `--sink-x/-y/-radius`) - **this is a deliberate, tested choice, not the
+  default because nobody's improved it yet**: a full-width top/bottom band
+  layout was tried (buoyancy acting across the whole width at once reaches
+  a fully-developed look in minutes instead of hours) but was found, via a
+  full-hour `view_fluidsim.py` run, to diverge roughly every 570-680
+  simulated seconds; only the small-patch layout has been confirmed stable
+  over a comparable (800s+) duration - see TODO.md for the current state of
+  replacing patches with an off-screen ghost boundary instead, which would
+  get both properties (no real LED consumed, hopefully long-run stable).
+  Most physics/appearance knobs (`--nu`, `--kappa`, `--buoyancy`,
+  `--brightness-divisor`, `--gamma`, `--fps`) are CLI flags - see their
+  `--help` text for tuned-by-eye defaults and stability notes. `nu`,
+  `buoyancy`, and `kappa` were each found (via `view_fluidsim.py`
+  experiments) to be fairly close to a joint numerical stability limit -
+  don't assume raising one has free headroom without testing offline first.
 - **`view_fluidsim.py`** - runs the same scenario on the desktop (no
   hardware), periodically saving PNG frames (via the same
   `temperature_to_rgb` mapping) and raw `.npz` state, plus diagnostic

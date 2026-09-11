@@ -220,14 +220,15 @@ def parse_args():
         "--nu",
         type=float,
         default=300.0,
-        help="viscosity (validated stable over 150s+ at buoyancy=1.0 with "
-        "the default full-width heater/sink bands - see --heater-band-"
-        "height/--sink-band-height; earlier testing with small circular "
-        "patches instead of bands found nu values from 150-260 diverged "
-        "within 15-25s, and separately that both buoyancy=2.0 and "
-        "kappa=60 diverged within 150s at nu=300 - so treat nu, buoyancy "
-        "and kappa as all fairly close to their joint stability limit, "
-        "not independently adjustable with headroom to spare)",
+        help="viscosity - the small circular heater/sink patches below "
+        "were the only boundary layout found stable over a full "
+        "simulated hour (see TODO.md); full-width bands at these same "
+        "settings diverged every ~570s, and nu values from 150-260 "
+        "diverged within 15-25s even with patches. Also found: "
+        "buoyancy=2.0 and kappa=60 both diverged within 150s at nu=300 "
+        "(with bands) - treat nu, buoyancy and kappa as fairly close to "
+        "their joint stability limit, not independently adjustable with "
+        "headroom to spare",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
@@ -262,19 +263,39 @@ def parse_args():
         "accurate incompressibility)",
     )
     parser.add_argument(
-        "--heater-band-height",
+        "--heater-x",
         type=float,
-        default=150.0,
-        help="height of the full-width heated band at the bottom edge "
-        "(a Rayleigh-Benard-style boundary, replacing a localised patch, "
-        "so buoyancy acts across the whole width at once)",
+        default=1000.0,
+        help="a full-width heated band was tried (Rayleigh-Benard-style, "
+        "so buoyancy acts across the whole width at once) and reached a "
+        "fully-developed look much faster, but diverged every ~570s at "
+        "these nu/kappa/buoyancy/dt settings - only this small circular "
+        "patch layout has been validated stable over a full simulated "
+        "hour (see TODO.md for the off-screen 'ghost boundary' idea "
+        "meant to combine both properties)",
     )
     parser.add_argument(
-        "--sink-band-height",
+        "--heater-y",
         type=float,
-        default=150.0,
-        help="height of the full-width cooled band at the top edge",
+        default=1500.0,
+        help="~25%% up from the bottom of the physical display (centres_y "
+        "follows image/screen convention - high y is physically low)",
     )
+    parser.add_argument("--heater-radius", type=float, default=150.0)
+    parser.add_argument(
+        "--sink-x",
+        type=float,
+        default=0.0,
+        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
+    )
+    parser.add_argument(
+        "--sink-y",
+        type=float,
+        default=500.0,
+        help="~25%% down from the top of the physical display (centres_y "
+        "follows image/screen convention - low y is physically high)",
+    )
+    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -298,11 +319,15 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    heater_idx = geo.bottom_band(args.heater_band_height)
-    sink_idx = geo.top_band(args.sink_band_height)
+    heater_idx = geo.points_within_radius(
+        (args.heater_x, args.heater_y), args.heater_radius
+    )
+    sink_idx = geo.points_within_radius(
+        (args.sink_x, args.sink_y), args.sink_radius
+    )
     boundary_idx = np.union1d(heater_idx, sink_idx)
-    print(f"heater band: {heater_idx.size} points")
-    print(f"cold band: {sink_idx.size} points")
+    print(f"heater patch: {heater_idx.size} points")
+    print(f"cold sink: {sink_idx.size} points")
 
     sim = NavierStokesSim(
         geo,
