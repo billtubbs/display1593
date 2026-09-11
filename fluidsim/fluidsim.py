@@ -356,8 +356,15 @@ class Geometry:
                 near[k] = True
             else:
                 near = dist < self.cutoff
-            if not near.any():
-                continue
+                if not near.any():
+                    # A wall point can legitimately sit almost the full
+                    # `cutoff` distance from the true edge (that's the
+                    # same criterion that flagged it as a wall point in
+                    # the first place), so no positive `offset` for a
+                    # fixed ghost row fully avoids this - fall back to
+                    # its single nearest ghost rather than silently
+                    # leaving it with no boundary connection at all.
+                    near[np.argmin(dist)] = True
             js, old_dx, old_dy = neighbours[real_i]
             neighbours[real_i] = (
                 np.concatenate([js, ghost_idx[near]]),

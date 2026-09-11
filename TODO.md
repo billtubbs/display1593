@@ -21,14 +21,41 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       why RK4 is needed today.
 - [x] `fluidsim`: replace the small circular heater/sink patches
       (`points_within_radius`) with an off-screen "ghost boundary"
-      (`Geometry.add_ghost_boundary(offset=geo.cutoff, one_to_one=True)`),
-      so all 1593 real LEDs are free-evolving fluid instead of ~89 real
-      LEDs pinned to a fixed hot/cold colour. Now wired into
-      `play_fluidsim.py`/`view_fluidsim.py` as the default (`--ghost-
-      offset` to override). **Important caveat, found the hard way
-      tonight: this is not immune to the underlying numerical
-      instability** - see below. It's the best of everything tried, not
-      a fix for the root cause (that's the semi-Lagrangian item above).
+      (`Geometry.add_ghost_boundary`), so all 1593 real LEDs are
+      free-evolving fluid instead of ~89-133 real LEDs pinned to a fixed
+      hot/cold colour. Wired into `play_fluidsim.py`/`view_fluidsim.py`.
+      **Important caveat, found the hard way tonight: this is not
+      immune to the underlying numerical instability** - see below.
+      It's the best of everything tried, not a fix for the root cause
+      (that's the semi-Lagrangian item above).
+
+      **Current deployed default (changed after the 1164.6s result
+      below was measured, NOT yet stability-tested at this setting -
+      only a 5s smoke test so far):** `cutoff=DEFAULT_CUTOFF=100`
+      (up from 80; both scripts now import this from `fluidsim.py`
+      instead of separately hardcoding their own `--cutoff` default -
+      that duplication had silently drifted apart once, worth watching
+      for again) with many-to-many connectivity (`one_to_one=False`,
+      the default). Chosen because it visibly warms faster/hotter,
+      consistent with more simultaneous ghost connections per edge
+      point - but per the pattern below, more connections has also
+      always meant *less* stable so far. Run a proper divergence-timing
+      test at this setting before trusting it unattended.
+
+      **Bug found and fixed 2026-09-10 (after this section was
+      written): `layout="grid"` could silently leave a wall point with
+      zero ghost connections** if it sat far enough from the true edge
+      that no ghost in the fixed-offset row was within `cutoff` -
+      confirmed visually (some edge points in `fluidsim/scratch/
+      plot_full_mesh.py`'s diagram had no real-ghost line) and in code
+      (57 of 133 wall points at cutoff=100, 26 of 89 at cutoff=80).
+      **This means the "grid layout: diverged once at t=682s" result
+      below was measuring a boundary with ~29% of its edge silently
+      disconnected, not a real grid boundary - treat that number as
+      invalid, not as evidence about the grid layout itself.** Fixed
+      by falling back to each orphaned point's single nearest ghost
+      (see `add_ghost_boundary`'s `else` branch) - `layout="grid"` has
+      not been re-tested for stability since.
 
       One ghost point per real point in `self.wall_idx` (points that
       lost a neighbour to the top/bottom y-wrap pruning in
