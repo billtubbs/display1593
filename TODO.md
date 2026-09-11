@@ -29,18 +29,56 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       It's the best of everything tried, not a fix for the root cause
       (that's the semi-Lagrangian item above).
 
-      **Current deployed default (changed after the 1164.6s result
-      below was measured, NOT yet stability-tested at this setting -
-      only a 5s smoke test so far):** `cutoff=DEFAULT_CUTOFF=100`
-      (up from 80; both scripts now import this from `fluidsim.py`
-      instead of separately hardcoding their own `--cutoff` default -
-      that duplication had silently drifted apart once, worth watching
-      for again) with many-to-many connectivity (`one_to_one=False`,
-      the default). Chosen because it visibly warms faster/hotter,
-      consistent with more simultaneous ghost connections per edge
-      point - but per the pattern below, more connections has also
-      always meant *less* stable so far. Run a proper divergence-timing
-      test at this setting before trusting it unattended.
+      **Current deployed default, now properly validated:**
+      `cutoff=DEFAULT_CUTOFF=100` (up from 80; both scripts import this
+      from `fluidsim.py` instead of separately hardcoding their own
+      `--cutoff` default - that duplication had silently drifted apart
+      once, worth watching for again), `offset=geo.cutoff` (=100, both
+      scripts' own default when `--ghost-offset` isn't passed), with
+      many-to-many connectivity (`one_to_one=False`, `add_ghost_
+      boundary`'s default). **0 divergence resets over the full 3600s
+      (1 simulated hour)** - the best result of the whole session,
+      beating patches, bands, and every other ghost variant below.
+      Confirmed twice: a standalone script mirroring `view_fluidsim.
+      py`'s test loop ran clean to 1600s with a self-correcting wobble
+      around t=1080-1300s (overshoot rose to 18 points, speed peaked
+      ~10.7, then recovered on its own - the first configuration all
+      night to show that kind of recovery instead of either staying
+      clean or diverging outright); a real `python fluidsim/
+      view_fluidsim.py --save-interval 15` run on the actual Mac went
+      the full 3600s with 0 resets, showing an equivalent wobble at
+      t=1110-1320s (overshoot up to 16 points) that also self-
+      corrected. Same phenomenon on both runs, slightly different
+      timing/magnitude - consistent with the kind of chaotic
+      sensitivity to minor floating-point differences already seen
+      elsewhere tonight, not a discrepancy to worry about.
+
+      **Trade-off, seen directly on the display, not just in
+      diagnostics: visual complexity dropped noticeably** - e.g. one
+      broad plume instead of the 3 narrower, hotter ones the less-
+      stable `cutoff=80` configs produced. Best explanation: raising
+      `cutoff` widens the neighbourhood every point's weighted-least-
+      squares `Gx`/`Gy` and graph-Laplacian `L` are built from (~6.5 ->
+      ~11.9 avg neighbours), which acts as extra implicit numerical
+      diffusion/smoothing independent of the actual `nu`/`kappa`
+      values - narrower/higher-wavenumber structure (multiple thin
+      plumes) gets averaged away once it's finer than the neighbourhood
+      radius. That's plausibly *also* why it's more stable: the finest,
+      highest-wavenumber modes are generally the ones an explicit
+      scheme like this struggles with most, so suppressing them via
+      coarser resolution may be removing the specific failure mode
+      responsible for every divergence tonight - a real trade of visual
+      richness for stability, not a free improvement.
+
+      An offset mismatch nearly produced a false negative here: a
+      first attempt at this test used `add_ghost_boundary()`'s own
+      internal default (`cutoff/2=50`) rather than what the scripts
+      actually pass (`offset=geo.cutoff=100`) - diverged almost
+      immediately (t=1.36s, 4207 resets in 1600s, since weight scales
+      as `1/distance²` so offset=50 is a 4x stronger coupling). Always
+      check a standalone test's `add_ghost_boundary(...)` call matches
+      the live scripts' actual arguments, not the function's own
+      defaults, before trusting a result.
 
       **Bug found and fixed 2026-09-10 (after this section was
       written): `layout="grid"` could silently leave a wall point with
@@ -121,3 +159,106 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       any boundary choice) is what actually makes this viable
       unattended. Raising `nu` to 400 only delayed bands' divergence by
       ~20% (568s -> 683s), not removed it.
+
+- [ ] **Set `--nu 150` for more interesting/energetic flow** (tested
+      2026-09-10 night into 2026-09-11 morning while the user slept -
+      recommendation below, for the user to review and apply;
+      deliberately NOT changed in `play_fluidsim.py`/`view_fluidsim.py`
+      by Claude - current deployed default is still `nu=300`).
+      **Recommendation: change `--nu`'s default from 300 to 150.**
+      Motivation:
+      at `cutoff=100`, the fluid looked visibly calmer/less complex than
+      earlier, less-stable configurations (see the `cutoff=100` write-up
+      above) - `cutoff=100`'s extra implicit numerical diffusion
+      (wider Gx/Gy/L neighbourhoods) plausibly gives headroom to lower
+      the *explicit* `nu` back down without losing the stability gained,
+      since the earlier "150-260 diverges in 15-25s" finding was
+      measured at `cutoff=80`, which no longer reflects the current
+      setup.
+
+      **Screening (300s each, kappa=20/buoyancy=1.0/dt=0.02/n_jacobi=40,
+      offset=cutoff=100, matching the live deployed config exactly):**
+      all four of nu=150/200/250/275 ran clean (0 resets), but peak
+      speed shows a sharp, threshold-like jump between 200 and 250:
+
+      | nu  | max speed @300s | overshoot @300s |
+      |-----|-----------------|------------------|
+      | 150 | 34.8            | 4                |
+      | 200 | 8.4             | 0                |
+      | 250 | 0.40            | 0                |
+      | 275 | 0.39            | 0                |
+
+      250/275 hadn't really started convecting yet by 300s (consistent
+      with nu=300's own very slow ~hundreds-of-seconds ramp-up seen
+      earlier tonight) - 150/200 are the candidates actually offering
+      more energetic motion than the current nu=300 default within a
+      reasonable timeframe. nu=150's speed (34.8) is higher than
+      anything validated all night (nu=300's own peak has stayed in the
+      ~10-20 range) - promising for "more interesting," but also the
+      single biggest departure from anything trusted so far, so it
+      needs the same longer-duration scrutiny as everything else before
+      being trusted, not just a clean 300s.
+
+      **1600s confirmatory runs:** `nu=200` diverged once at t=988.14s.
+      `nu=150` ran clean (0 resets) with a self-correcting wobble around
+      t=735-885s (overshoot rose to 47 points, the largest self-
+      correction seen all session, then fully cleared). Counter-
+      intuitively, the *lower*-viscosity `nu=150` outperformed `nu=200`:
+      looking at `nu=200`'s trajectory, it never reaches a fully
+      saturated convective state - it oscillates, ramping to speed ~8-13
+      then partially collapsing back toward near-zero (0.187 at
+      t=1020s) and re-ramping; its divergence sits right in one of
+      those collapse/re-ramp transitions. `nu=150` instead switches on
+      fast (full speed by t=135s) and stays in a robust, saturated
+      state - plausibly why it's more, not less, stable despite less
+      damping.
+
+      **Full 3600s confirmatory run for `nu=150` (matching the exact
+      scrutiny given to the current `nu=300` default): 0 divergence
+      resets.** Sustained speed ~30-35 throughout (`nu=300`'s own peak
+      stayed in the ~10-20 range) - genuinely more energetic, not just
+      briefly. After the single wobble at t=735-885s clears (by
+      t=1035s), overshoot stays at exactly 0 for the entire remaining
+      ~2700s to t=3600s - even cleaner long-term than `nu=300`'s own
+      3600s run (which had its own comparable wobble around t=1110-
+      1320s). This is now validated to the same standard as every other
+      number in this file - recommended for use.
+
+      Test script used throughout: a standalone script mirroring
+      `view_fluidsim.py`'s loop, parametrized by `nu` and duration,
+      always constructing `add_ghost_boundary(offset=geo.cutoff)` to
+      exactly match what `play_fluidsim.py`/`view_fluidsim.py` actually
+      pass (not `add_ghost_boundary()`'s own internal default) - not
+      yet committed to the repo, lives only in this session's
+      scratchpad. Worth moving into `fluidsim/scratch/` (matching
+      `plot_full_mesh.py`'s precedent) if more parameter sweeps like
+      this are anticipated, so the "match the live scripts' actual
+      arguments, not the library's internal defaults" lesson isn't
+      re-learned by hand each time.
+
+- [ ] Fix unbounded frame-pacing drift in `play_fluidsim.py`'s `run()`.
+      `compute_time` (checked against the `--fps` budget, e.g. 200ms at
+      fps=5) only measures `sim.step()` + `temperature_to_rgb()` - it
+      excludes `dis.set_all_leds()` and `dis.show_now()`, the actual
+      serial writes to the Teensy boards, which are not free (all 1593
+      LEDs' RGB values over a 57600-baud link, every frame). Observed
+      live on the Pi Zero 2W: `compute_time` alone was a healthy 153-
+      156ms (under the 200ms budget), yet the printed "over budget"
+      figure was already 6500+ ms and climbing by a few ms every frame.
+      Cause: `next_time += time_step` runs on a fixed schedule from
+      whenever the loop started and never resyncs - if the *true*
+      per-frame cost (compute + serial I/O, not just compute) exceeds
+      the budget by even a small, persistent margin, the deficit
+      compounds forever with no recovery mechanism. Not urgent (doesn't
+      crash anything, the display just drifts further behind real-time
+      the longer it runs), but worth fixing: either resync `next_time`
+      to `time.monotonic() + time_step` once the deficit exceeds some
+      threshold (accept a genuinely lower effective fps rather than an
+      ever-growing one), and/or include the serial write time in what's
+      checked against the budget, and/or throttle the warning to once
+      per `report_interval` instead of every single frame once behind.
+      Also worth reconsidering whether `cutoff=100`'s higher compute
+      cost (153-156ms vs. the earlier `cutoff=80` measurement of 78-
+      117ms) leaves enough real-world margin at `fps=5` on the Pi Zero
+      2W once serial I/O is properly accounted for - the true budget
+      margin is smaller than the `compute_time`-only number suggests.

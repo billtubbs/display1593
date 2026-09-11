@@ -167,25 +167,29 @@ layout geometry).
   to the LED display (temperature -> colour via a capped "plasma"-colormap
   ramp, gamma-corrected for the LEDs' non-linear response). Self-heals from
   numerical blow-up (resets to the cold initial state on NaN/Inf) since it's
-  meant to run unattended - **and this matters, because nothing tested so
-  far is actually immune to the underlying instability**: every boundary
-  layout tried (small circular patches, full-width top/bottom bands, and
-  several off-screen "ghost boundary" constructions) eventually diverges
-  given enough simulated time, via the same pattern (a slow overshoot
-  buildup, then a sudden NaN blow-up) - they only differ in how long that
-  takes. The heater/sink are off-screen ghost points just beyond the real
-  top/bottom edges (`Geometry.add_ghost_boundary(one_to_one=True)`, sized
-  by `--ghost-offset`) rather than any real, displayed LED - the longest
-  measured time to first divergence of everything tried (1164.6s, vs.
-  568-682s for full-width bands or a many-to-many ghost wiring - see
-  TODO.md for the full comparison and why more ghost connections per point
-  made things *worse*, not better). Most physics/appearance knobs (`--nu`,
-  `--kappa`, `--buoyancy`, `--brightness-divisor`, `--gamma`, `--fps`) are
-  CLI flags - see their `--help` text for tuned-by-eye defaults and
-  stability notes. `nu`, `buoyancy`, and `kappa` were each found (via
-  `view_fluidsim.py` experiments) to be fairly close to a joint numerical
-  stability limit - don't assume raising one has free headroom without
-  testing offline first.
+  meant to run unattended. The heater/sink are off-screen ghost points just
+  beyond the real top/bottom edges (`Geometry.add_ghost_boundary`, sized by
+  `--ghost-offset`, defaulting to `--cutoff`) rather than any real,
+  displayed LED. Current defaults (`cutoff=100`, many-to-many connectivity)
+  measured **0 divergence resets over 1600s** - the best result found, at
+  the cost of visibly less complex flow (one broad plume instead of several
+  narrower ones) than the shorter-lived `cutoff=80` configurations - a
+  wider neighbourhood radius means every point's `Gx`/`Gy`/`L` operators
+  average over a physically larger area, which smooths out structure finer
+  than that radius independent of the actual `nu`/`kappa` values (and
+  plausibly *why* it's more stable too - the finest structure is generally
+  what an explicit scheme like this struggles with). See TODO.md for the
+  full comparison across boundary layouts/connectivity - **nothing tested
+  is actually provably immune** to the underlying instability (every
+  configuration eventually shows the same slow-overshoot-then-NaN pattern
+  given enough simulated time, or hasn't been run long enough to know); the
+  self-heal-and-reset is what actually makes any of this viable unattended,
+  not the boundary choice. Most physics/appearance knobs (`--nu`, `--kappa`,
+  `--buoyancy`, `--brightness-divisor`, `--gamma`, `--fps`) are CLI flags -
+  see their `--help` text for tuned-by-eye defaults and stability notes.
+  `nu`, `buoyancy`, and `kappa` were each found (via `view_fluidsim.py`
+  experiments) to be fairly close to a joint numerical stability limit -
+  don't assume raising one has free headroom without testing offline first.
 - **`view_fluidsim.py`** - runs the same scenario on the desktop (no
   hardware), periodically saving PNG frames (via the same
   `temperature_to_rgb` mapping) and raw `.npz` state, plus diagnostic
