@@ -72,7 +72,7 @@ _DATA_DIR = Path(_layout.__file__).resolve().parent
 # nearest_neighbour_distances_1593.csv exactly). y does not wrap.
 PERIOD = 2000.0
 
-DEFAULT_CUTOFF = 80.0
+DEFAULT_CUTOFF = 100.0
 
 
 def _wrap(delta, period=PERIOD):

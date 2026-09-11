@@ -34,7 +34,7 @@ import time
 import numpy as np
 
 from display1593 import Display1593
-from fluidsim import Geometry, NavierStokesSim
+from fluidsim import DEFAULT_CUTOFF, Geometry, NavierStokesSim
 
 # (temperature fraction, R, G, B) control points for the cold->hot ramp,
 # sampled from matplotlib's "plasma" colormap at u = 0.85 * fraction (i.e.
@@ -219,7 +219,7 @@ def run(
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cutoff", type=float, default=80.0)
+    parser.add_argument("--cutoff", type=float, default=DEFAULT_CUTOFF)
     parser.add_argument(
         "--nu",
         type=float,
@@ -306,9 +306,7 @@ def main():
     geo = Geometry(cutoff=args.cutoff)
     n_real = geo.n
     ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
-    heater_idx, sink_idx = geo.add_ghost_boundary(
-        offset=ghost_offset, one_to_one=True
-    )
+    heater_idx, sink_idx = geo.add_ghost_boundary(offset=ghost_offset)
     boundary_idx = np.union1d(heater_idx, sink_idx)
     print(
         f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "

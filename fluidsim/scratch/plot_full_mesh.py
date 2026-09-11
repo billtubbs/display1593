@@ -2,6 +2,7 @@
 including every real-real and real-ghost connection as a line."""
 
 import sys
+from pathlib import Path
 
 import matplotlib
 
@@ -10,12 +11,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
 
-sys.path.insert(0, "/Users/billtubbs/display1593/fluidsim")
-from fluidsim import Geometry, PERIOD  # noqa: E402
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE.parent))
+from fluidsim import DEFAULT_CUTOFF, Geometry, PERIOD  # noqa: E402
 
 layout = sys.argv[1] if len(sys.argv) > 1 else "grid"
 
-geo = Geometry(cutoff=80.0)
+geo = Geometry(cutoff=DEFAULT_CUTOFF)
 n_real = geo.n
 bottom_ghost_idx, top_ghost_idx = geo.add_ghost_boundary(layout=layout)
 bottom_set = set(bottom_ghost_idx.tolist())
@@ -69,7 +71,7 @@ ax.set_aspect("equal")
 ax.set_title(f"Full neighbour graph: fluid points + {layout} ghost boundary")
 ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.03), ncol=2, fontsize=7)
 plt.tight_layout()
-out_path = f"/private/tmp/claude-501/-Users-billtubbs-display1593/dd286af9-60bf-4747-8752-135f16fa872a/scratchpad/full_mesh_{layout}.png"
+out_path = _HERE / f"full_mesh_{layout}.png"
 fig.savefig(out_path, dpi=150)
 print("saved", out_path)
 
@@ -87,6 +89,6 @@ ax2.set_aspect("equal")
 ax2.set_title(f"Zoomed: bottom edge detail ({layout} layout)")
 ax2.legend(loc="upper right", fontsize=8)
 plt.tight_layout()
-out_path2 = f"/private/tmp/claude-501/-Users-billtubbs-display1593/dd286af9-60bf-4747-8752-135f16fa872a/scratchpad/full_mesh_{layout}_zoom.png"
+out_path2 = _HERE / f"full_mesh_{layout}_zoom.png"
 fig2.savefig(out_path2, dpi=150)
 print("saved", out_path2)

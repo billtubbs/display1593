@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import EllipseCollection
 
-from fluidsim import Geometry, NavierStokesSim
+from fluidsim import DEFAULT_CUTOFF, Geometry, NavierStokesSim
 from play_fluidsim import temperature_to_rgb
 
 _HERE = Path(__file__).resolve().parent
@@ -52,7 +52,7 @@ DEFAULT_OUT_DIR = _HERE / "data"
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
-    parser.add_argument("--cutoff", type=float, default=80.0)
+    parser.add_argument("--cutoff", type=float, default=DEFAULT_CUTOFF)
     parser.add_argument(
         "--nu",
         type=float,
@@ -128,9 +128,7 @@ def main():
     geo = Geometry(cutoff=args.cutoff)
     n_real = geo.n
     ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
-    heater_idx, sink_idx = geo.add_ghost_boundary(
-        offset=ghost_offset, one_to_one=True
-    )
+    heater_idx, sink_idx = geo.add_ghost_boundary(offset=ghost_offset)
     boundary_idx = np.union1d(heater_idx, sink_idx)
     print(
         f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "
