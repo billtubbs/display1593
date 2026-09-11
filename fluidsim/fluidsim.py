@@ -241,7 +241,9 @@ class Geometry:
         dy = self.cy - cy0
         return np.nonzero(np.hypot(dx, dy) <= radius)[0]
 
-    def add_ghost_boundary(self, offset=None, layout="mirror", spacing=None):
+    def add_ghost_boundary(
+        self, offset=None, layout="mirror", spacing=None, one_to_one=False
+    ):
         """
         Add off-screen "ghost" points just beyond the top and bottom
         edges, and wire them to nearby real edge points - so a fixed
@@ -289,6 +291,13 @@ class Geometry:
         heater_idx/sink_idx. Callers must slice state arrays down to
         the original real point count before mapping to LED colour -
         the ghosts are never part of the real, displayed 1593 LEDs.
+
+        `one_to_one=True` restricts each real point to its single
+        *nearest* ghost instead of every ghost within `self.cutoff` -
+        reconstructing the original 1:1 wiring (only meaningful with
+        `layout="mirror"`, where a point's nearest ghost is always the
+        one generated from it) for comparison against the many-to-many
+        default.
         """
         if offset is None:
             # Must be comfortably less than self.cutoff: the many-to-many
@@ -324,15 +333,29 @@ class Geometry:
         bottom_ghost_idx = ghost_idx[is_bottom]
         top_ghost_idx = ghost_idx[~is_bottom]
 
+        if one_to_one and layout != "mirror":
+            raise ValueError("one_to_one is only meaningful with layout='mirror'")
+
         neighbours = self._neighbours
-        for real_i in self.wall_idx:
+        for k, real_i in enumerate(self.wall_idx):
             dx = _wrap(ghost_cx - self.cx[real_i])
             # Ghosts are deliberately placed off the (open, non-periodic)
             # y-domain, so their y-offset is a plain difference, not
             # _wrap()'d like a real neighbour's would be.
             dy = ghost_cy - self.cy[real_i]
             dist = np.hypot(dx, dy)
-            near = dist < self.cutoff
+            if one_to_one:
+                # Exactly the ghost generated *from* this point (mirror's
+                # ghost_cx/ghost_cy are built by iterating self.wall_idx
+                # directly, so index k already is that correspondence) -
+                # NOT "nearest ghost": a neighbouring wall point's ghost
+                # can occasionally be geometrically closer than a point's
+                # own (wall points aren't perfectly evenly spaced), which
+                # would silently reconstruct a different, untested wiring.
+                near = np.zeros(n_ghost, dtype=bool)
+                near[k] = True
+            else:
+                near = dist < self.cutoff
             if not near.any():
                 continue
             js, old_dx, old_dy = neighbours[real_i]
