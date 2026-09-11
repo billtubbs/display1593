@@ -56,9 +56,9 @@ def parse_args():
     parser.add_argument(
         "--nu",
         type=float,
-        default=300.0,
+        default=150.0,
         help="viscosity - see play_fluidsim.py's --nu help for validated "
-        "stability limits and why this is higher than you might expect",
+        "stability findings and history",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"

@@ -160,13 +160,11 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       unattended. Raising `nu` to 400 only delayed bands' divergence by
       ~20% (568s -> 683s), not removed it.
 
-- [ ] **Set `--nu 150` for more interesting/energetic flow** (tested
-      2026-09-10 night into 2026-09-11 morning while the user slept -
-      recommendation below, for the user to review and apply;
-      deliberately NOT changed in `play_fluidsim.py`/`view_fluidsim.py`
-      by Claude - current deployed default is still `nu=300`).
-      **Recommendation: change `--nu`'s default from 300 to 150.**
-      Motivation:
+- [x] **Set `--nu 150` for more interesting/energetic flow** (tested
+      2026-09-10 night into 2026-09-11 morning while the user slept,
+      applied 2026-09-11 morning at the user's request - both
+      `play_fluidsim.py` and `view_fluidsim.py` now default to
+      `nu=150`). Motivation:
       at `cutoff=100`, the fluid looked visibly calmer/less complex than
       earlier, less-stable configurations (see the `cutoff=100` write-up
       above) - `cutoff=100`'s extra implicit numerical diffusion
@@ -262,3 +260,16 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       117ms) leaves enough real-world margin at `fps=5` on the Pi Zero
       2W once serial I/O is properly accounted for - the true budget
       margin is smaller than the `compute_time`-only number suggests.
+
+      **Practical mitigation applied 2026-09-11: `--fps` default lowered
+      to 4.5** (from 5.0). From the observed drift rate in the printed
+      warnings (growing ~1.5ms/frame against the 200ms/5fps budget), the
+      true sustainable frame period on the Pi at this configuration is
+      ~201.5ms (~4.96fps) - just barely over 5fps's budget, which is
+      exactly why it drifted slowly rather than blowing up outright.
+      4.5fps (222ms budget) gives ~20ms of margin over that measurement.
+      This doesn't fix the resync bug above (the code will still drift
+      unboundedly if the true cost ever exceeds 222ms again - e.g. if
+      `cutoff`/`n_jacobi` change) - it just moves the target far enough
+      below current measured cost that the bug's effect is negligible in
+      practice. The actual resync fix is still worth doing.

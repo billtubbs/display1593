@@ -223,19 +223,22 @@ def parse_args():
     parser.add_argument(
         "--nu",
         type=float,
-        default=300.0,
-        help="viscosity - every boundary layout tried eventually diverges "
-        "given enough simulated time (a slow overshoot buildup, then a "
-        "sudden NaN blow-up - handled by the self-heal reset below, not "
-        "eliminated by any settings found so far). The off-screen ghost "
-        "boundary used here lasted 1164.6s before its first divergence "
-        "(longest measured of several layouts - see TODO.md), vs. 568-"
-        "682s for full-width bands or a many-to-many ghost wiring, and "
-        "nu values from 150-260 diverged within 15-25s even with the "
-        "small-patch layout this replaced. buoyancy=2.0 and kappa=60 "
-        "both diverged within 150s at nu=300 - treat nu, buoyancy and "
-        "kappa as fairly close to a joint stability limit, not "
-        "independently adjustable with headroom to spare",
+        default=150.0,
+        help="viscosity - every boundary layout/nu combination tried "
+        "eventually diverges given enough simulated time (a slow "
+        "overshoot buildup, then a sudden NaN blow-up - handled by the "
+        "self-heal reset below, not eliminated by any settings found so "
+        "far). At the current cutoff/ghost-boundary config, nu=150 "
+        "validated clean over a full 3600s run with sustained speed "
+        "~30-35 (vs. nu=300's ~10-20) - counter-intuitively more stable "
+        "than nu=200, which diverged once at t=988s from a non-saturated, "
+        "oscillating state, whereas nu=150 reaches a robust saturated "
+        "convective state fast and stays there. Older nu findings (150-"
+        "260 diverging within 15-25s) were measured at cutoff=80 with "
+        "the small-patch boundary this replaced and no longer apply "
+        "directly - see TODO.md for the full history before changing "
+        "this again, since nu/buoyancy/kappa/cutoff interact in ways "
+        "that don't transfer cleanly across configuration changes",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
@@ -287,9 +290,17 @@ def parse_args():
     parser.add_argument(
         "--fps",
         type=float,
-        default=5.0,
+        default=4.5,
         help="fixed LED update rate - the loop paces itself to this clock "
-        "regardless of compute time, warning if a frame runs over budget",
+        "regardless of compute time, warning if a frame runs over budget. "
+        "Lowered from 5.0 on the Pi Zero 2W: measured true per-frame cost "
+        "(compute + serial I/O, not just the compute_time reported in the "
+        "over-budget warning) was ~201.5ms at cutoff=100/n_jacobi=40, just "
+        "barely over the 200ms/5fps budget - close enough that the "
+        "schedule drifted by a small, unbounded amount every frame (see "
+        "TODO.md's frame-pacing item). 4.5fps (222ms budget) gives ~20ms "
+        "of margin over that measurement; re-measure if cutoff/n_jacobi "
+        "change, since compute cost isn't fixed",
     )
     parser.add_argument(
         "--report-interval",
