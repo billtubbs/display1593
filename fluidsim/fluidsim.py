@@ -210,6 +210,20 @@ class Geometry:
         dy = self.cy - cy0
         return np.nonzero(np.hypot(dx, dy) <= radius)[0]
 
+    def bottom_band(self, height):
+        """
+        Indices of points within `height` of the bottom edge.
+
+        Spans the full (periodic) width, unlike `points_within_radius` -
+        centres_y follows the image/screen convention (see the module
+        docstring), so the bottom edge is where cy is largest.
+        """
+        return np.nonzero(self.cy > self.cy.max() - height)[0]
+
+    def top_band(self, height):
+        """Indices of points within `height` of the top edge (cy smallest)."""
+        return np.nonzero(self.cy < self.cy.min() + height)[0]
+
 
 def _to_casadi_sparse(mat):
     """scipy.sparse matrix -> constant casadi.DM with the same sparsity/values."""

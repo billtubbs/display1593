@@ -57,10 +57,8 @@ def parse_args():
         "--nu",
         type=float,
         default=300.0,
-        help="viscosity - validated stable over 80s+ at buoyancy=1.0 with "
-        "the heater at the physical bottom of the display; see "
-        "play_fluidsim.py's --nu help for why this is higher than you "
-        "might expect",
+        help="viscosity - see play_fluidsim.py's --nu help for validated "
+        "stability limits and why this is higher than you might expect",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
@@ -75,29 +73,18 @@ def parse_args():
         help="sim duration - default is 1 simulated hour, to reproduce "
         "the kind of long-run drift only seen on an overnight display run",
     )
-    parser.add_argument("--heater-x", type=float, default=1000.0)
     parser.add_argument(
-        "--heater-y",
+        "--heater-band-height",
         type=float,
-        default=1500.0,
-        help="~25%% up from the bottom of the physical display (centres_y "
-        "follows image/screen convention - high y is physically low)",
-    )
-    parser.add_argument("--heater-radius", type=float, default=150.0)
-    parser.add_argument(
-        "--sink-x",
-        type=float,
-        default=0.0,
-        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
+        default=150.0,
+        help="height of the full-width heated band at the bottom edge",
     )
     parser.add_argument(
-        "--sink-y",
+        "--sink-band-height",
         type=float,
-        default=500.0,
-        help="~25%% down from the top of the physical display (centres_y "
-        "follows image/screen convention - low y is physically high)",
+        default=150.0,
+        help="height of the full-width cooled band at the top edge",
     )
-    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -144,15 +131,11 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    heater_idx = geo.points_within_radius(
-        (args.heater_x, args.heater_y), args.heater_radius
-    )
-    sink_idx = geo.points_within_radius(
-        (args.sink_x, args.sink_y), args.sink_radius
-    )
+    heater_idx = geo.bottom_band(args.heater_band_height)
+    sink_idx = geo.top_band(args.sink_band_height)
     boundary_idx = np.union1d(heater_idx, sink_idx)
-    print(f"heater patch: {heater_idx.size} points")
-    print(f"cold sink: {sink_idx.size} points")
+    print(f"heater band: {heater_idx.size} points")
+    print(f"cold band: {sink_idx.size} points")
     print(f"wall (floor/ceiling) points: {geo.wall_idx.size}")
 
     sim = NavierStokesSim(
