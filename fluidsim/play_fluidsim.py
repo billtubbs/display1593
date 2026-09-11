@@ -96,6 +96,7 @@ def run(
     sim,
     heater_idx,
     sink_idx,
+    n_real,
     T_cold,
     T_hot,
     hot_start_time,
@@ -163,8 +164,11 @@ def run(
                 T = np.full(n, T_cold)
                 step_count = 0
 
+            # Ghost boundary points (indices >= n_real) are never part of
+            # the real, displayed LEDs - slice them off before mapping to
+            # colour.
             rgb = temperature_to_rgb(
-                T, T_cold, T_hot, brightness_divisor, gamma
+                T[:n_real], T_cold, T_hot, brightness_divisor, gamma
             )
             compute_time = time.perf_counter() - compute_start
             compute_times.append(compute_time)
@@ -220,15 +224,18 @@ def parse_args():
         "--nu",
         type=float,
         default=300.0,
-        help="viscosity - the small circular heater/sink patches below "
-        "were the only boundary layout found stable over a full "
-        "simulated hour (see TODO.md); full-width bands at these same "
-        "settings diverged every ~570s, and nu values from 150-260 "
-        "diverged within 15-25s even with patches. Also found: "
-        "buoyancy=2.0 and kappa=60 both diverged within 150s at nu=300 "
-        "(with bands) - treat nu, buoyancy and kappa as fairly close to "
-        "their joint stability limit, not independently adjustable with "
-        "headroom to spare",
+        help="viscosity - every boundary layout tried eventually diverges "
+        "given enough simulated time (a slow overshoot buildup, then a "
+        "sudden NaN blow-up - handled by the self-heal reset below, not "
+        "eliminated by any settings found so far). The off-screen ghost "
+        "boundary used here lasted 1164.6s before its first divergence "
+        "(longest measured of several layouts - see TODO.md), vs. 568-"
+        "682s for full-width bands or a many-to-many ghost wiring, and "
+        "nu values from 150-260 diverged within 15-25s even with the "
+        "small-patch layout this replaced. buoyancy=2.0 and kappa=60 "
+        "both diverged within 150s at nu=300 - treat nu, buoyancy and "
+        "kappa as fairly close to a joint stability limit, not "
+        "independently adjustable with headroom to spare",
     )
     parser.add_argument(
         "--kappa", type=float, default=20.0, help="thermal diffusivity"
@@ -263,39 +270,17 @@ def parse_args():
         "accurate incompressibility)",
     )
     parser.add_argument(
-        "--heater-x",
+        "--ghost-offset",
         type=float,
-        default=1000.0,
-        help="a full-width heated band was tried (Rayleigh-Benard-style, "
-        "so buoyancy acts across the whole width at once) and reached a "
-        "fully-developed look much faster, but diverged every ~570s at "
-        "these nu/kappa/buoyancy/dt settings - only this small circular "
-        "patch layout has been validated stable over a full simulated "
-        "hour (see TODO.md for the off-screen 'ghost boundary' idea "
-        "meant to combine both properties)",
+        default=None,
+        help="distance beyond the top/bottom edge for the off-screen "
+        "ghost boundary (see Geometry.add_ghost_boundary) - defaults to "
+        "--cutoff, the only value validated (1164.6s to first "
+        "divergence, longest of several boundary layouts tried; see "
+        "TODO.md). All 1593 real LEDs are free-evolving fluid; no real "
+        "LED is forced to a fixed colour, unlike the small circular "
+        "patches or full-width bands tried earlier",
     )
-    parser.add_argument(
-        "--heater-y",
-        type=float,
-        default=1500.0,
-        help="~25%% up from the bottom of the physical display (centres_y "
-        "follows image/screen convention - high y is physically low)",
-    )
-    parser.add_argument("--heater-radius", type=float, default=150.0)
-    parser.add_argument(
-        "--sink-x",
-        type=float,
-        default=0.0,
-        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
-    )
-    parser.add_argument(
-        "--sink-y",
-        type=float,
-        default=500.0,
-        help="~25%% down from the top of the physical display (centres_y "
-        "follows image/screen convention - low y is physically high)",
-    )
-    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -319,15 +304,16 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    heater_idx = geo.points_within_radius(
-        (args.heater_x, args.heater_y), args.heater_radius
-    )
-    sink_idx = geo.points_within_radius(
-        (args.sink_x, args.sink_y), args.sink_radius
+    n_real = geo.n
+    ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
+    heater_idx, sink_idx = geo.add_ghost_boundary(
+        offset=ghost_offset, one_to_one=True
     )
     boundary_idx = np.union1d(heater_idx, sink_idx)
-    print(f"heater patch: {heater_idx.size} points")
-    print(f"cold sink: {sink_idx.size} points")
+    print(
+        f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "
+        f"off-screen points ({n_real} real LEDs all free-evolving)"
+    )
 
     sim = NavierStokesSim(
         geo,
@@ -359,6 +345,7 @@ def main():
             sim,
             heater_idx,
             sink_idx,
+            n_real,
             args.t_cold,
             args.t_hot,
             args.hot_start_time,

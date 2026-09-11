@@ -73,29 +73,13 @@ def parse_args():
         help="sim duration - default is 1 simulated hour, to reproduce "
         "the kind of long-run drift only seen on an overnight display run",
     )
-    parser.add_argument("--heater-x", type=float, default=1000.0)
     parser.add_argument(
-        "--heater-y",
+        "--ghost-offset",
         type=float,
-        default=1500.0,
-        help="~25%% up from the bottom of the physical display (centres_y "
-        "follows image/screen convention - high y is physically low)",
+        default=None,
+        help="see play_fluidsim.py's --ghost-offset help - defaults to "
+        "--cutoff",
     )
-    parser.add_argument("--heater-radius", type=float, default=150.0)
-    parser.add_argument(
-        "--sink-x",
-        type=float,
-        default=0.0,
-        help="0.0 sits on the periodic x-wrap seam (left/right edge)",
-    )
-    parser.add_argument(
-        "--sink-y",
-        type=float,
-        default=500.0,
-        help="~25%% down from the top of the physical display (centres_y "
-        "follows image/screen convention - low y is physically high)",
-    )
-    parser.add_argument("--sink-radius", type=float, default=150.0)
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
     parser.add_argument("--hot-start-time", type=float, default=1.0)
@@ -142,15 +126,16 @@ def main():
     args = parse_args()
 
     geo = Geometry(cutoff=args.cutoff)
-    heater_idx = geo.points_within_radius(
-        (args.heater_x, args.heater_y), args.heater_radius
-    )
-    sink_idx = geo.points_within_radius(
-        (args.sink_x, args.sink_y), args.sink_radius
+    n_real = geo.n
+    ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
+    heater_idx, sink_idx = geo.add_ghost_boundary(
+        offset=ghost_offset, one_to_one=True
     )
     boundary_idx = np.union1d(heater_idx, sink_idx)
-    print(f"heater patch: {heater_idx.size} points")
-    print(f"cold sink: {sink_idx.size} points")
+    print(
+        f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "
+        f"off-screen points ({n_real} real LEDs all free-evolving)"
+    )
     print(f"wall (floor/ceiling) points: {geo.wall_idx.size}")
 
     sim = NavierStokesSim(
@@ -168,13 +153,6 @@ def main():
     heater_mask[heater_idx] = 1.0
     sink_mask = np.zeros(n)
     sink_mask[sink_idx] = 1.0
-    # "Interior" for overshoot diagnostics: everywhere except the two
-    # patches whose temperature is exogenously forced every step - those
-    # are supposed to sit exactly at T_hot/T_cold, so including them would
-    # just measure the forcing itself, not the free field's behaviour.
-    interior_mask = np.ones(n, dtype=bool)
-    interior_mask[heater_idx] = False
-    interior_mask[sink_idx] = False
 
     n_total_steps = int(round(args.seconds / args.dt))
     save_every = max(1, int(round(args.save_interval / args.dt)))
@@ -188,16 +166,19 @@ def main():
     fig.patch.set_facecolor("black")
     ax.set_facecolor("black")
     margin = args.led_diameter
-    ax.set_xlim(geo.cx.min() - margin, geo.cx.max() + margin)
+    # Real LEDs only - the off-screen ghost boundary points (indices
+    # >= n_real) are never displayed.
+    real_cx, real_cy = geo.cx[:n_real], geo.cy[:n_real]
+    ax.set_xlim(real_cx.min() - margin, real_cx.max() + margin)
     # centres_y follows the image/screen convention (low y = top, high y =
     # bottom - see fluidsim.py's module docstring), the opposite of
     # matplotlib's default math convention, so the axis must be inverted
     # for a frame to look right-side-up next to the physical display.
-    ax.set_ylim(geo.cy.max() + margin, geo.cy.min() - margin)
+    ax.set_ylim(real_cy.max() + margin, real_cy.min() - margin)
     ax.set_aspect("equal")
     ax.axis("off")
 
-    offsets = np.column_stack([geo.cx, geo.cy])
+    offsets = np.column_stack([real_cx, real_cy])
     leds = EllipseCollection(
         widths=args.led_diameter,
         heights=args.led_diameter,
@@ -212,10 +193,10 @@ def main():
     quiver = None
     if args.quiver:
         quiver = ax.quiver(
-            geo.cx,
-            geo.cy,
-            np.zeros(n),
-            np.zeros(n),
+            real_cx,
+            real_cy,
+            np.zeros(n_real),
+            np.zeros(n_real),
             color="cyan",
             scale=200,
             width=0.002,
@@ -227,7 +208,7 @@ def main():
 
     print(f"simulating {n_total_steps} steps ({args.seconds:.1f}s)...")
     t0 = time.perf_counter()
-    point_idx = np.arange(n)
+    point_idx = np.arange(n_real)
     n_resets = 0
 
     csv_path = out_dir / "sim_results.csv"
@@ -236,8 +217,11 @@ def main():
         csv_writer.writerow(["t", "point", "cx", "cy", "T"])
 
         def save_snapshot(step, t, u, v, T):
+            # Ghost boundary points (>= n_real) are never displayed or
+            # logged - only the real, physical LEDs are.
+            T_real, u_real, v_real = T[:n_real], u[:n_real], v[:n_real]
             rgb = temperature_to_rgb(
-                T,
+                T_real,
                 args.t_cold,
                 args.t_hot,
                 args.brightness_divisor,
@@ -246,21 +230,19 @@ def main():
             leds.set_facecolor(rgb / 255.0)
             title.set_text(f"t = {t:.1f} s")
             if quiver is not None:
-                quiver.set_UVC(u, v)
+                quiver.set_UVC(u_real, v_real)
             idx = step // save_every
             stem = f"frame_{idx:0{n_digits}d}"
             fig.savefig(
                 out_dir / f"{stem}.png", facecolor=fig.get_facecolor()
             )
-            np.savez(out_dir / f"{stem}.npz", t=t, u=u, v=v, T=T)
+            np.savez(out_dir / f"{stem}.npz", t=t, u=u_real, v=v_real, T=T_real)
             csv_writer.writerows(
-                zip(np.full(n, t), point_idx, geo.cx, geo.cy, T)
+                zip(np.full(n_real, t), point_idx, real_cx, real_cy, T_real)
             )
             csv_file.flush()
 
-            overshoot = interior_mask & (
-                (T > args.t_hot) | (T < args.t_cold)
-            )
+            overshoot = (T_real > args.t_hot) | (T_real < args.t_cold)
             elapsed = time.perf_counter() - t0
             pct = 100.0 * step / n_total_steps
             # ETA from the rate observed so far (step 0 has no rate yet).
@@ -269,9 +251,9 @@ def main():
                 f"[{pct:5.1f}%  elapsed={elapsed / 60:5.1f}min  "
                 f"eta={eta / 60:5.1f}min]  "
                 f"t={t:7.1f}s  "
-                f"T overall=[{T.min():+.3f}, {T.max():+.3f}]  "
-                f"sink=[{T[sink_idx].min():+.3f}, {T[sink_idx].max():+.3f}]  "
-                f"heater=[{T[heater_idx].min():+.3f}, {T[heater_idx].max():+.3f}]  "
+                f"real T=[{T_real.min():+.3f}, {T_real.max():+.3f}]  "
+                f"ghost sink=[{T[sink_idx].min():+.3f}, {T[sink_idx].max():+.3f}]  "
+                f"ghost heater=[{T[heater_idx].min():+.3f}, {T[heater_idx].max():+.3f}]  "
                 f"overshoot points={np.count_nonzero(overshoot)}"
             )
 

@@ -148,9 +148,10 @@ layout geometry).
   y does not - it's a vertical container, open top/bottom) and the discrete
   operators derived from it (`Gx`, `Gy` gradient, `L` graph Laplacian), plus
   point-selection helpers for choosing which points a caller commandeers as
-  boundary conditions: `points_within_radius` (a circular patch) and
-  `add_ghost_boundary` (off-screen points just beyond the real top/bottom
-  edges - see TODO.md; not yet validated enough to be the default).
+  boundary conditions: `points_within_radius` (a circular patch, no longer
+  used by default) and `add_ghost_boundary` (off-screen points just beyond
+  the real top/bottom edges, used with `one_to_one=True` - see below and
+  TODO.md for the many-to-many variants that were tried and found worse).
   `NavierStokesSim` compiles one CasADi `Function` that advects/diffuses/
   buoys velocity+temperature with RK4, pressure-projects via Jacobi sweeps
   against `L`, and applies boundary conditions (free-slip top/bottom,
@@ -166,23 +167,25 @@ layout geometry).
   to the LED display (temperature -> colour via a capped "plasma"-colormap
   ramp, gamma-corrected for the LEDs' non-linear response). Self-heals from
   numerical blow-up (resets to the cold initial state on NaN/Inf) since it's
-  meant to run unattended. The heater/sink are small circular patches
-  (`points_within_radius`, positioned via `--heater-x/-y/-radius`/
-  `--sink-x/-y/-radius`) - **this is a deliberate, tested choice, not the
-  default because nobody's improved it yet**: a full-width top/bottom band
-  layout was tried (buoyancy acting across the whole width at once reaches
-  a fully-developed look in minutes instead of hours) but was found, via a
-  full-hour `view_fluidsim.py` run, to diverge roughly every 570-680
-  simulated seconds; only the small-patch layout has been confirmed stable
-  over a comparable (800s+) duration - see TODO.md for the current state of
-  replacing patches with an off-screen ghost boundary instead, which would
-  get both properties (no real LED consumed, hopefully long-run stable).
-  Most physics/appearance knobs (`--nu`, `--kappa`, `--buoyancy`,
-  `--brightness-divisor`, `--gamma`, `--fps`) are CLI flags - see their
-  `--help` text for tuned-by-eye defaults and stability notes. `nu`,
-  `buoyancy`, and `kappa` were each found (via `view_fluidsim.py`
-  experiments) to be fairly close to a joint numerical stability limit -
-  don't assume raising one has free headroom without testing offline first.
+  meant to run unattended - **and this matters, because nothing tested so
+  far is actually immune to the underlying instability**: every boundary
+  layout tried (small circular patches, full-width top/bottom bands, and
+  several off-screen "ghost boundary" constructions) eventually diverges
+  given enough simulated time, via the same pattern (a slow overshoot
+  buildup, then a sudden NaN blow-up) - they only differ in how long that
+  takes. The heater/sink are off-screen ghost points just beyond the real
+  top/bottom edges (`Geometry.add_ghost_boundary(one_to_one=True)`, sized
+  by `--ghost-offset`) rather than any real, displayed LED - the longest
+  measured time to first divergence of everything tried (1164.6s, vs.
+  568-682s for full-width bands or a many-to-many ghost wiring - see
+  TODO.md for the full comparison and why more ghost connections per point
+  made things *worse*, not better). Most physics/appearance knobs (`--nu`,
+  `--kappa`, `--buoyancy`, `--brightness-divisor`, `--gamma`, `--fps`) are
+  CLI flags - see their `--help` text for tuned-by-eye defaults and
+  stability notes. `nu`, `buoyancy`, and `kappa` were each found (via
+  `view_fluidsim.py` experiments) to be fairly close to a joint numerical
+  stability limit - don't assume raising one has free headroom without
+  testing offline first.
 - **`view_fluidsim.py`** - runs the same scenario on the desktop (no
   hardware), periodically saving PNG frames (via the same
   `temperature_to_rgb` mapping) and raw `.npz` state, plus diagnostic
