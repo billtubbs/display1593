@@ -128,7 +128,11 @@ def main():
     geo = Geometry(cutoff=args.cutoff)
     n_real = geo.n
     ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
-    heater_idx, sink_idx = geo.add_ghost_boundary(offset=ghost_offset)
+    # one_to_one=True: required for the reflection-ghost boundary below -
+    # see play_fluidsim.py's main() for why.
+    heater_idx, sink_idx = geo.add_ghost_boundary(
+        offset=ghost_offset, one_to_one=True
+    )
     boundary_idx = np.union1d(heater_idx, sink_idx)
     print(
         f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "
@@ -151,6 +155,14 @@ def main():
     heater_mask[heater_idx] = 1.0
     sink_mask = np.zeros(n)
     sink_mask[sink_idx] = 1.0
+
+    # Reflection ghost - see play_fluidsim.py's run() for the rationale.
+    ghost_to_real = geo.ghost_to_real
+    paired_real = np.zeros(n, dtype=int)
+    ghost_mask = np.zeros(n, dtype=bool)
+    for g, r in ghost_to_real.items():
+        paired_real[g] = r
+        ghost_mask[g] = True
 
     n_total_steps = int(round(args.seconds / args.dt))
     save_every = max(1, int(round(args.save_interval / args.dt)))
@@ -263,8 +275,11 @@ def main():
                 heater_temp = (
                     args.t_hot if t >= args.hot_start_time else args.t_cold
                 )
-                T_boundary = (
+                wall_target = (
                     heater_mask * heater_temp + sink_mask * args.t_cold
+                )
+                T_boundary = np.where(
+                    ghost_mask, 2 * wall_target - T[paired_real], 0.0
                 )
                 u_next, v_next, T_next = sim.step(u, v, T, T_boundary)
 

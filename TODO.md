@@ -273,3 +273,87 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       `cutoff`/`n_jacobi` change) - it just moves the target far enough
       below current measured cost that the bug's effect is negligible in
       practice. The actual resync fix is still worth doing.
+
+      **Diagnostic message fixed 2026-09-11: now honestly reports each
+      frame's own cost instead of a misleading, unboundedly-growing
+      cumulative figure.** `dis.set_all_leds()`'s duration is now timed
+      directly (`io_time`, alongside the existing `compute_time`), and
+      the warning prints `compute + other = total (over budget)` using
+      that frame's own `compute_time + io_time` vs. `time_step` -
+      genuinely a snapshot of this frame's actual cost, not a running
+      debt against an ever-more-stale reference clock. Confirmed live on
+      the Pi Zero 2W (post-`nu=150`/`fps=4.5`): compute ~183-190ms +
+      other (mostly the LED serial write) ~9-16ms, totalling ~192-206ms,
+      occasionally a few ms over the 222ms/4.5fps budget - a small,
+      stable, believable number now, not one that climbs into the
+      thousands of ms the longer the run continues.
+
+      **This does NOT fix the resync bug above** - it only fixes what
+      gets *printed*. The actual pacing/sleep logic (`next_time += time_
+      step`, `wait_time`) is untouched and still has no resync
+      mechanism, so if the true per-frame cost keeps exceeding budget,
+      the *sleep schedule* will still silently drift even though the
+      warning message no longer misrepresents how badly. Fixing the
+      real pacing behaviour (not just the diagnostic) is still open.
+
+- [ ] **Low contrast: real fluid never reaches anywhere near `T_hot`.**
+      Confirmed 2026-09-11 by loading every saved `.npz` from a full
+      3600s run (`nu=150`, `cutoff=100`, current deployed config):
+      **max temperature reached by any real point was 0.7724** (settling
+      to ~0.75-0.77 by the end, not still climbing), while the ghost
+      boundary is fixed at exactly `T_hot=1.0` - a persistent ~23% gap,
+      not a slow transient that would close given more time.
+
+      **Root cause**: the same weighted-average dilution discussed
+      earlier - a real edge point's temperature is a distance-weighted
+      average across *all* its neighbours (~5 ghost connections at
+      `T_hot`, several more real/cooler ones, at the current many-to-
+      many connectivity), so it's pulled some of the way toward
+      `T_hot`, never all the way - then that already-diluted boundary
+      layer diffuses further as it advects/diffuses inward, compounding
+      it. This is inherent to using a *statically fixed* ghost value in
+      a weighted-average discretization, not a tunable-away side effect.
+
+      **Options, cheapest to most correct:**
+      1. [x] **Applied 2026-09-11: `--display-t-hot` CLI arg on
+         `play_fluidsim.py`**, decoupling the LED colour-normalization
+         ceiling (`temperature_to_rgb`'s `T_hot` argument) from the
+         physics value the ghost boundary is actually fixed to. Zero
+         physics/stability risk - purely a colour remap of the
+         unchanged simulation output. Defaults to the old behaviour
+         (falls back to `--t-hot`) if not passed. Try e.g.
+         `--display-t-hot 0.8` to use the full colour ramp across the
+         range actually being reached instead of leaving the top ~23%
+         of it permanently unused. `view_fluidsim.py` was not given the
+         equivalent option - it's a diagnostic tool, not for visual
+         tuning, but could get one too if useful there.
+      2. **Untested physics experiments** that might genuinely raise
+         the achieved temperature (not just remap colour): increase
+         `--buoyancy` (stronger forcing might sustain a hotter plume
+         before it has time to mix down - unknown headroom at the
+         current `nu=150`/`cutoff=100` config, hasn't been tried since
+         switching to it) or decrease `--kappa` (less thermal diffusion
+         means less "washing out" of the hot boundary layer as it
+         spreads - the earlier finding that *raising* kappa hurt
+         stability doesn't obviously apply symmetrically to lowering
+         it, but genuinely untested). Both need the same offline
+         `view_fluidsim.py` stability scrutiny as every other parameter
+         in this file before trusting them live.
+      3. **The actually-correct fix, not yet started: replace the
+         statically-fixed ghost value with a "reflection" ghost**,
+         updated every step as `T_ghost = 2*T_wall - T_real` (the
+         *current* value of the real point it's attached to), rather
+         than a constant. This forces the *average* of a real point and
+         its ghost to sit exactly at `T_wall` - the actual physical
+         location of the wall - which decouples heat-transfer strength
+         from how many neighbours/ghosts happen to be averaged in,
+         unlike the current approach. This was discussed and reasoned
+         through in detail overnight 2026-09-10 but never written down
+         until now - don't lose it again. Real structural work: ghost
+         values are currently supplied as an external constant (`Tb`,
+         via `NavierStokesSim`'s `fixed_mask`), completely decoupled
+         from the live state; a reflection ghost's value depends on the
+         *current* state of its paired real point inside the CasADi
+         graph itself, recomputed every step (arguably every RK4
+         stage) - not a quick change, and needs its own stability
+         validation from scratch, same as everything else in this file.

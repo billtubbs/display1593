@@ -381,6 +381,20 @@ class Geometry:
         self._neighbours = neighbours
         self.Gx, self.Gy, self.L = self._build_operators(neighbours)
         self.L_diag = np.asarray(self.L.diagonal())
+
+        # For "mirror" layout, ghost_idx[k] is *always* the ghost
+        # generated from self.wall_idx[k] (ghost_cx/cy above are built
+        # by iterating self.wall_idx directly), regardless of one_to_one
+        # - a well-defined 1:1 pairing a caller can use to implement a
+        # reflection ghost (T_ghost = 2*T_wall - T_real[paired point],
+        # recomputed each step from the live state - see TODO.md/play_
+        # fluidsim.py). Not defined for "grid": ghosts there aren't
+        # generated from any particular real point.
+        self.ghost_to_real = (
+            dict(zip(ghost_idx.tolist(), self.wall_idx.tolist()))
+            if layout == "mirror"
+            else None
+        )
         return bottom_ghost_idx, top_ghost_idx
 
 

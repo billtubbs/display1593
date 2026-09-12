@@ -104,12 +104,38 @@ def run(
     brightness_divisor=1,
     gamma=2.2,
     report_interval=60.0,
+    display_t_hot=None,
+    ghost_to_real=None,
 ):
+    # display_t_hot only affects colour normalization (temperature_to_rgb
+    # below) - it's deliberately separate from T_hot, the physics value
+    # the ghost boundary is actually fixed to. Real fluid never reaches
+    # T_hot (the boundary's own weighted-average dilution keeps it well
+    # short - see TODO.md), so normalizing colour against T_hot leaves
+    # the top of the colour ramp permanently unused. Defaults to T_hot
+    # (the old behaviour) if not given.
+    if display_t_hot is None:
+        display_t_hot = T_hot
+
     n = sim.geometry.n
     heater_mask = np.zeros(n)
     heater_mask[heater_idx] = 1.0
     sink_mask = np.zeros(n)
     sink_mask[sink_idx] = 1.0
+
+    # Reflection ghost: T_ghost = 2*T_wall - T_real[paired point],
+    # recomputed every step from the *live* state, instead of a static
+    # constant. Forces the average of a real edge point and its ghost to
+    # sit exactly at T_wall (the actual physical wall location) - unlike
+    # a static ghost, this doesn't get diluted by however many other
+    # neighbours that real point happens to have (see TODO.md). Requires
+    # Geometry.ghost_to_real (only defined for layout="mirror").
+    if ghost_to_real is not None:
+        paired_real = np.zeros(n, dtype=int)
+        ghost_mask = np.zeros(n, dtype=bool)
+        for g, r in ghost_to_real.items():
+            paired_real[g] = r
+            ghost_mask[g] = True
 
     u = np.zeros(n)
     v = np.zeros(n)
@@ -129,7 +155,13 @@ def run(
         while True:
             t = step_count * sim.dt
             heater_temp = T_hot if t >= hot_start_time else T_cold
-            T_boundary = heater_mask * heater_temp + sink_mask * T_cold
+            wall_target = heater_mask * heater_temp + sink_mask * T_cold
+            if ghost_to_real is not None:
+                T_boundary = np.where(
+                    ghost_mask, 2 * wall_target - T[paired_real], 0.0
+                )
+            else:
+                T_boundary = wall_target
 
             compute_start = time.perf_counter()
             u_next, v_next, T_next = sim.step(u, v, T, T_boundary)
@@ -168,12 +200,29 @@ def run(
             # the real, displayed LEDs - slice them off before mapping to
             # colour.
             rgb = temperature_to_rgb(
-                T[:n_real], T_cold, T_hot, brightness_divisor, gamma
+                T[:n_real], T_cold, display_t_hot, brightness_divisor, gamma
             )
             compute_time = time.perf_counter() - compute_start
             compute_times.append(compute_time)
 
+            # "compute_time" above only covers sim.step() + colour
+            # conversion - the actual serial write to the Teensy boards
+            # (the other big cost each frame) is measured separately here
+            # so the budget check below reflects this frame's true cost,
+            # not just the part of it "compute_time" happens to cover.
+            io_start = time.perf_counter()
             dis.set_all_leds(rgb)
+            io_time = time.perf_counter() - io_start
+
+            frame_time = compute_time + io_time
+            over_budget = frame_time - time_step
+            if over_budget > 0:
+                print(
+                    f"WARNING: {compute_time * 1000:.1f} ms compute + "
+                    f"{io_time * 1000:.1f} ms other = {frame_time * 1000:.1f} "
+                    f"ms ({over_budget * 1000:.1f} ms over the "
+                    f"{time_step * 1000:.0f} ms budget for {1 / time_step:.1f} fps)"
+                )
 
             # Synchronize display to a fixed-rate clock: each frame is due
             # at next_time regardless of how long the previous one took, so
@@ -181,11 +230,6 @@ def run(
             next_time += time_step
             wait_time = next_time - time.monotonic()
             if wait_time < 0:
-                print(
-                    f"WARNING: frame took {compute_time * 1000:.1f} ms to "
-                    f"compute, {-wait_time * 1000:.1f} ms over the "
-                    f"{time_step * 1000:.0f} ms budget for {1 / time_step:.1f} fps"
-                )
                 wait_time = 0
             time.sleep(wait_time)
             dis.show_now()
@@ -286,6 +330,19 @@ def parse_args():
     )
     parser.add_argument("--t-cold", type=float, default=0.0)
     parser.add_argument("--t-hot", type=float, default=1.0)
+    parser.add_argument(
+        "--display-t-hot",
+        type=float,
+        default=None,
+        help="colour-normalization ceiling for the LED display only - "
+        "does NOT change the physics (the ghost boundary is still fixed "
+        "at --t-hot). Real fluid never reaches --t-hot (measured peak "
+        "~0.77 over a full 3600s run at nu=150/cutoff=100 - see TODO.md), "
+        "so normalizing colour against --t-hot leaves the brightest part "
+        "of the colour ramp permanently unused. Defaults to --t-hot (old "
+        "behaviour) if not given; try e.g. 0.8 to use the full ramp "
+        "across the range actually achieved",
+    )
     parser.add_argument("--hot-start-time", type=float, default=1.0)
     parser.add_argument(
         "--fps",
@@ -317,7 +374,16 @@ def main():
     geo = Geometry(cutoff=args.cutoff)
     n_real = geo.n
     ghost_offset = args.ghost_offset if args.ghost_offset is not None else geo.cutoff
-    heater_idx, sink_idx = geo.add_ghost_boundary(offset=ghost_offset)
+    # one_to_one=True: required for the reflection-ghost boundary below -
+    # "reflect across the wall" only has a well-defined meaning for a
+    # clean 1:1 real<->ghost pairing (see Geometry.ghost_to_real). A
+    # *dynamic* reflection value doubles a single connection's effective
+    # pull toward the wall temperature vs. a static ghost (see TODO.md),
+    # so many-to-many connectivity is no longer needed to compensate for
+    # dilution - it was only ever a workaround for a static ghost value.
+    heater_idx, sink_idx = geo.add_ghost_boundary(
+        offset=ghost_offset, one_to_one=True
+    )
     boundary_idx = np.union1d(heater_idx, sink_idx)
     print(
         f"ghost boundary: {heater_idx.size} hot + {sink_idx.size} cold "
@@ -362,6 +428,8 @@ def main():
             args.brightness_divisor,
             args.gamma,
             args.report_interval,
+            args.display_t_hot,
+            geo.ghost_to_real,
         )
 
 
