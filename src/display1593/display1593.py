@@ -380,6 +380,11 @@ class Display1593:
             self._connections = []
             for name in self.board_names:
                 self._connections.append(connections[name])
+
+            # Leave serial workers stopped until explicitly started; this keeps
+            # the existing synchronous API behaviour unchanged while enabling
+            # an optional async pipeline when needed.
+            self.serial_workers = []
         except Exception:
             self._lock.release()
             raise
@@ -406,12 +411,21 @@ class Display1593:
             if worker.is_alive():
                 worker.join(timeout=1)
 
+    def _serial_workers_active(self):
+        return bool(self.serial_workers) and all(
+            worker.is_alive() for worker in self.serial_workers
+        )
+
     def check_response(self, ser, cmd, timeout_after=1):
         check_response(ser, cmd, timeout_after=timeout_after)
 
     def clear_all(self):
         logger.debug("Method clear_all.")
         cmd = COMMAND_LC
+        if self._serial_workers_active():
+            for worker in self.serial_workers:
+                worker.enqueue(cmd)
+            return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
@@ -424,16 +438,20 @@ class Display1593:
         assert len(rgb) == 3
         if i < self.led_idx[1]:
             led_id = i
-            ser = self._connections[0]
+            board_index = 0
         elif i < self.led_idx[2]:
             led_id = i - self.led_idx[1]
-            ser = self._connections[1]
+            board_index = 1
         else:
             raise ValueError("invalid led id")
         # Command L1 - implemented
         cmd = np.array(
             (76, 49, led_id // 256 % 256, led_id % 256, *rgb), dtype=np.uint8
         )
+        if self._serial_workers_active():
+            self.submit_serial_command(board_index, cmd)
+            return
+        ser = self._connections[board_index]
         send_data_to_arduino(ser, cmd)
         self.check_response(ser, cmd)
 
@@ -446,6 +464,23 @@ class Display1593:
         )
         board_leds = [board_leds_0, board_leds_1]
         rgb_arrays = [rgb_arrays_0, rgb_arrays_1]
+        if self._serial_workers_active():
+            for board_index, (leds, rgb_array) in enumerate(
+                zip(board_leds, rgb_arrays)
+            ):
+                n = leds.shape[0]
+                if n == 0:
+                    continue
+                idx = make_idx_array(leds)
+                cmd = np.concatenate(
+                    [
+                        (76, 78, n // 256 % 256, n % 256),
+                        np.hstack((idx, rgb_array)).flatten(),
+                    ]
+                ).astype(np.uint8)
+                self.submit_serial_command(board_index, cmd)
+            return
+
         cmds_sent = {}
         for leds, rgb_array, ser in zip(
             board_leds, rgb_arrays, self._connections
@@ -474,6 +509,18 @@ class Display1593:
         )
         board_leds_0, board_leds_1 = _board_leds(leds, self.led_idx)
         board_leds = [board_leds_0, board_leds_1]
+        if self._serial_workers_active():
+            for board_index, leds in enumerate(board_leds):
+                n = leds.shape[0]
+                if n == 0:
+                    continue
+                idx = make_idx_array(leds)
+                cmd = np.concatenate(
+                    [(67, 78, n // 256 % 256, n % 256, *rgb), idx.flatten()]
+                ).astype(np.uint8)
+                self.submit_serial_command(board_index, cmd)
+            return
+
         cmds_sent = {}
         for leds, ser in zip(board_leds, self._connections):
             n = leds.shape[0]
@@ -492,6 +539,14 @@ class Display1593:
     def set_all_leds(self, rgb_array):
         logger.debug("Method set_all_leds.")
         assert rgb_array.shape == (self.n_leds, 3)
+        if self._serial_workers_active():
+            for board_index, (i, j) in enumerate(pairwise(self.led_idx)):
+                cmd = np.concatenate(
+                    [(76, 65), rgb_array[i:j].flatten()]
+                ).astype(np.uint8)
+                self.submit_serial_command(board_index, cmd)
+            return
+
         cmds_sent = {}
         for (i, j), ser in zip(pairwise(self.led_idx), self._connections):
             # Command LA - implemented
@@ -508,6 +563,10 @@ class Display1593:
         assert len(rgb) == 3
         # Command CA - implemented
         cmd = np.array((67, 65, *rgb), dtype=np.uint8)
+        if self._serial_workers_active():
+            for worker in self.serial_workers:
+                worker.enqueue(cmd)
+            return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
@@ -532,12 +591,17 @@ class Display1593:
         # Command SN - implemented
         # TODO: In future this will be synchronized by comms between boards
         cmd = COMMAND_SN
+        if self._serial_workers_active():
+            for worker in self.serial_workers:
+                worker.enqueue(cmd)
+            return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
             self.check_response(ser, cmd)
 
     def disconnect(self):
+        self.stop_serial_workers()
         while len(self._connections) > 0:
             ser = self._connections.pop()
             ser.close()

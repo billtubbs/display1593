@@ -87,5 +87,50 @@ def test_display1593_exposes_async_serial_setup():
     assert hasattr(display, "submit_serial_command")
 
 
+def test_show_now_uses_active_serial_workers(monkeypatch):
+    class DummySerial:
+        def __init__(self):
+            self.in_waiting = 0
+
+    sent = []
+    processed = []
+
+    def fake_send(ser, cmd):
+        sent.append(cmd.copy())
+
+    def fake_check(ser, cmd):
+        processed.append(cmd.copy())
+
+    monkeypatch.setattr(
+        "display1593.display1593.send_data_to_arduino", fake_send
+    )
+    monkeypatch.setattr("display1593.display1593.check_response", fake_check)
+
+    display = Display1593()
+    display._connections = [DummySerial(), DummySerial()]
+    display.serial_workers = [
+        BoardSerialWorker(display._connections[0]),
+        BoardSerialWorker(display._connections[1]),
+    ]
+    for worker in display.serial_workers:
+        worker.start()
+
+    try:
+        display.show_now()
+        deadline = time.monotonic() + 2
+        while len(processed) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert len(sent) == 2
+        assert all(
+            np.array_equal(cmd, np.array(list(b"SN"), dtype=np.uint8))
+            for cmd in sent
+        )
+    finally:
+        for worker in display.serial_workers:
+            worker.shutdown()
+            worker.join(timeout=1)
+
+
 if __name__ == "__main__":
     unittest.main()
