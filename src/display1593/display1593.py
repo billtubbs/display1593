@@ -1,7 +1,9 @@
 import logging
+import threading
 import time
 from itertools import pairwise
 from pathlib import Path
+from queue import Queue
 
 import numpy as np
 import serial
@@ -217,6 +219,57 @@ def calc_expected_response(cmd):
     return expected_response
 
 
+class BoardSerialWorker(threading.Thread):
+    """Serialize access to one board so commands remain ordered."""
+
+    def __init__(self, ser, queue_size=0):
+        super().__init__(daemon=True)
+        self.ser = ser
+        self.queue = Queue(maxsize=queue_size)
+        self._stop_event = threading.Event()
+
+    def enqueue(self, cmd):
+        cmd = np.asarray(cmd, dtype=np.uint8).copy()
+        self.queue.put(cmd)
+
+    def shutdown(self):
+        self._stop_event.set()
+        self.queue.put(None)
+
+    def run(self):
+        while True:
+            cmd = self.queue.get()
+            if cmd is None:
+                self.queue.task_done()
+                break
+            send_data_to_arduino(self.ser, cmd)
+            check_response(self.ser, cmd)
+            self.queue.task_done()
+
+
+def check_response(ser, cmd, timeout_after=1):
+    expected_response = calc_expected_response(cmd)
+    waiting = True
+    timeout_time = time.time() + timeout_after
+    while waiting:
+        if ser.in_waiting > 0:
+            waiting = False
+            response = receive_data_from_arduino(ser)
+            if np.array_equal(response, expected_response):
+                logger.debug("Resp rec'd")
+            elif np.array_equal(response[:2], [0, 0]):
+                logger.debug("Debug msg: %s", bytes(response[2:]).decode())
+            else:
+                logger.warning(
+                    "Resp invalid, expected %s, got %s",
+                    expected_response,
+                    response,
+                )
+        if time.time() > timeout_time:
+            logger.warning("Timeout")
+            break
+
+
 class Display1593:
     def __init__(
         self,
@@ -242,6 +295,7 @@ class Display1593:
         )
         self.n_leds = self.led_idx[-1]
         self._connections = []
+        self.serial_workers = []
         self.nearest_neighbours = np.asarray(
             nearest_neighbours, dtype=np.uint16
         )
@@ -330,27 +384,30 @@ class Display1593:
             self._lock.release()
             raise
 
+    def start_serial_workers(self):
+        self.stop_serial_workers()
+        self.serial_workers = [
+            BoardSerialWorker(ser) for ser in self._connections
+        ]
+        for worker in self.serial_workers:
+            worker.start()
+        return self.serial_workers
+
+    def submit_serial_command(self, board_index, cmd):
+        if not 0 <= board_index < len(self.serial_workers):
+            raise IndexError("board_index out of range")
+        self.serial_workers[board_index].enqueue(cmd)
+
+    def stop_serial_workers(self):
+        for worker in self.serial_workers:
+            if worker.is_alive():
+                worker.shutdown()
+        for worker in self.serial_workers:
+            if worker.is_alive():
+                worker.join(timeout=1)
+
     def check_response(self, ser, cmd, timeout_after=1):
-        expected_response = calc_expected_response(cmd)
-        waiting = True
-        timeout_time = time.time() + timeout_after
-        while waiting:
-            if ser.in_waiting > 0:
-                waiting = False
-                response = receive_data_from_arduino(ser)
-                if np.array_equal(response, expected_response):
-                    logger.debug("Resp rec'd")
-                elif np.array_equal(response[:2], [0, 0]):
-                    logger.debug("Debug msg: %s", bytes(response[2:]).decode())
-                else:
-                    logger.warning(
-                        "Resp invalid, expected %s, got %s",
-                        expected_response,
-                        response,
-                    )
-            if time.time() > timeout_time:
-                logger.warning("Timeout")
-                break
+        check_response(ser, cmd, timeout_after=timeout_after)
 
     def clear_all(self):
         logger.debug("Method clear_all.")
