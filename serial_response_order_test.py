@@ -100,9 +100,13 @@ def main():
                     responses.append(response)
                     print("n=", n, "reply:", response)
                 except TimeoutError as exc:
-                    print(f"TIMEOUT waiting for reply #{idx + 1} of {len(commands)}")
+                    print(
+                        f"TIMEOUT waiting for reply #{idx + 1} of {len(commands)}"
+                    )
                     print(f"  command #{idx + 1}: {list(cmd)}")
-                    print(f"  expected response: {list(calc_expected_response(cmd))}")
+                    print(
+                        f"  expected response: {list(calc_expected_response(cmd))}"
+                    )
                     print(f"  earlier responses received: {len(responses)}")
                     print(f"  last error: {exc}")
                     raise
