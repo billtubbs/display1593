@@ -95,21 +95,9 @@ def main():
 
             responses = []
             for idx, cmd in enumerate(commands):
-                try:
-                    response = receive_data_from_arduino(ser, timeout=2.0)
-                    responses.append(response)
-                    print("n=", n, "reply:", response)
-                except TimeoutError as exc:
-                    print(
-                        f"TIMEOUT waiting for reply #{idx + 1} of {len(commands)}"
-                    )
-                    print(f"  command #{idx + 1}: {list(cmd)}")
-                    print(
-                        f"  expected response: {list(calc_expected_response(cmd))}"
-                    )
-                    print(f"  earlier responses received: {len(responses)}")
-                    print(f"  last error: {exc}")
-                    raise
+                response = receive_data_from_arduino(ser)
+                responses.append(response)
+                print("n=", n, "reply:", response)
             matches = [
                 np.array_equal(resp, calc_expected_response(cmd))
                 for resp, cmd in zip(responses, commands)
