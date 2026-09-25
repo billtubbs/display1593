@@ -204,6 +204,36 @@ def test_board_serial_worker_rejects_corrupt_response_after_two_commands(
         worker.join(timeout=1)
 
 
+def test_receive_data_from_arduino_can_decode_impossible_644_byte_payload():
+    """Minimal stale-frame reproducer for impossible length values.
+
+    This does not prove the board sent a 644-byte reply. It demonstrates the
+    exact host-side failure mode: if the serial stream starts mid-frame, or a
+    stale packet is left in the buffer, then a short-command exchange can still
+    decode to a 644-byte payload. That is how impossible response lengths like
+    644 can appear without any out-of-order reply being possible.
+    """
+
+    class FakeSerial:
+        def __init__(self):
+            self._buf = b"\xfe" + b"\x00" * 644 + b"\xff"
+
+        def read_until(self, marker, size=None):
+            if marker == b"\xfe":
+                out = b"\xfe"
+                self._buf = self._buf[1:]
+                return out
+            if marker == b"\xff":
+                out = self._buf
+                self._buf = b""
+                return out
+            raise AssertionError(f"unexpected marker: {marker!r}")
+
+    data = __import__("serial_comm").receive_data_from_arduino(FakeSerial())
+    assert len(data) == 644
+    assert data.shape == (644,)
+
+
 def test_board_serial_worker_timeout_when_reply_stalls(monkeypatch):
     class DummySerial:
         def __init__(self):
