@@ -413,6 +413,26 @@ class Display1593:
         for worker in self.serial_workers:
             worker.enqueue(COMMAND_SN)
 
+    def submit_frame(self, board_commands):
+        """Queue one frame across boards without committing it yet.
+
+        board_commands should be a mapping of board index to a command or list of
+        commands for that board. The frame is not made visible until
+        show_now() is called, which is the host-side commit boundary.
+        """
+        for board_index, cmds in board_commands.items():
+            self._submit_board_commands(board_index, cmds)
+
+    def commit_frame(self):
+        """Host-side frame commit: instruct each board to show queued updates."""
+        if self._serial_workers_active():
+            self._queue_refresh()
+            return
+        for ser in self._connections:
+            send_data_to_arduino(ser, COMMAND_SN)
+        for ser in self._connections:
+            self.check_response(ser, COMMAND_SN)
+
     def stop_serial_workers(self):
         for worker in self.serial_workers:
             if worker.is_alive():
@@ -602,14 +622,7 @@ class Display1593:
         # This is the host-side frame boundary: everything queued before this
         # call is the current frame; everything queued after it belongs to the
         # next refresh cycle.
-        cmd = COMMAND_SN
-        if self._serial_workers_active():
-            self._queue_refresh()
-            return
-        for ser in self._connections:
-            send_data_to_arduino(ser, cmd)
-        for ser in self._connections:
-            self.check_response(ser, cmd)
+        self.commit_frame()
 
     def disconnect(self):
         self.stop_serial_workers()
