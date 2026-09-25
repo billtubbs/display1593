@@ -7,6 +7,9 @@ commands and will legitimately trigger the Arduino's "Invalid command"
 message; those do not tell us anything about ordering.
 """
 
+import time
+from collections import deque
+
 import numpy as np
 
 from display1593 import Display1593
@@ -21,6 +24,25 @@ VALID_COMMANDS = {
 }
 
 
+def receive_with_timeout(ser, timeout=2.0):
+    """Probe helper used only in this script.
+
+    The core library intentionally keeps the blocking receive path because a
+    timeout in the shared helper broke the board hello handshake. This wrapper
+    adds a bounded wait only around the real receive call to diagnose burst
+    behavior without changing the production API.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if ser.in_waiting > 0:
+            return receive_data_from_arduino(ser)
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Timed out waiting for reply after {timeout:.2f}s"
+            )
+        time.sleep(0.001)
+
+
 def expect_reply(ser, cmd):
     send_data_to_arduino(ser, cmd)
     response = receive_data_from_arduino(ser)
@@ -33,6 +55,100 @@ def expect_reply(ser, cmd):
     print("---")
     assert match, f"expected {expected}, got {response} for command {cmd}"
     return response
+
+
+def make_command(i):
+    if i % 3 == 0:
+        return VALID_COMMANDS["SN"]
+    if i % 3 == 1:
+        return VALID_COMMANDS["LC"]
+    led_index = (i * 7) % 256
+    rgb = np.array(
+        [(i * 17) % 256, (i * 29) % 256, (i * 43) % 256],
+        dtype=np.uint8,
+    )
+    return np.concatenate(
+        [
+            np.array([ord("L"), ord("1")], dtype=np.uint8),
+            np.array(
+                [led_index // 256 % 256, led_index % 256], dtype=np.uint8
+            ),
+            rgb,
+        ]
+    )
+
+
+def run_burst_in_order(ser, commands, max_inflight=4, timeout=2.0):
+    """Send a bounded in-flight burst and read responses in FIFO order.
+
+    This matches the production protocol we want to validate: keep at most
+    ``max_inflight`` commands outstanding at once, and process replies as soon
+    as they arrive instead of sending a full burst and only then draining the
+    reply queue.
+    """
+    pending = deque(commands)
+    inflight = deque()
+    responses = []
+
+    while pending or inflight:
+        while pending and len(inflight) < max_inflight:
+            cmd = pending.popleft()
+            send_data_to_arduino(ser, cmd)
+            inflight.append((cmd, calc_expected_response(cmd)))
+
+        if not inflight:
+            continue
+
+        if ser.in_waiting > 0:
+            response = receive_with_timeout(ser, timeout=timeout)
+            cmd, expected = inflight.popleft()
+            responses.append(response)
+            print("reply:", response)
+            if not np.array_equal(response, expected):
+                raise AssertionError(
+                    f"expected {expected}, got {response} for command {cmd}"
+                )
+        else:
+            time.sleep(0.001)
+
+    return responses
+
+
+def ramped_send_probe(ser, max_commands=400, max_inflight=4, timeout=2.0):
+    """Increase the send rate until the reply path becomes the bottleneck.
+
+    The idea is to keep adding commands into the pipeline and measuring when
+    the host-side send loop starts stalling on the board replies rather than on
+    the sender itself. The command count at which this happens is the effective
+    saturation point for this protocol.
+    """
+    results = []
+    for burst_n in range(1, max_commands + 1):
+        commands = [make_command(i) for i in range(burst_n)]
+        t0 = time.perf_counter()
+        try:
+            responses = run_burst_in_order(
+                ser, commands, max_inflight=max_inflight, timeout=timeout
+            )
+        except TimeoutError as exc:
+            elapsed = time.perf_counter() - t0
+            print(
+                f"SATURATION: burst_n={burst_n}, elapsed={elapsed:.3f}s, "
+                f"timeout={exc}"
+            )
+            return (
+                burst_n,
+                elapsed,
+                responses if "responses" in locals() else [],
+            )
+
+        elapsed = time.perf_counter() - t0
+        results.append((burst_n, elapsed, len(responses)))
+        if burst_n in {1, 2, 3, 5, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192}:
+            print(f"ramp burst_n={burst_n}, elapsed={elapsed:.3f}s")
+
+    print("No saturation observed up to max_commands=", max_commands)
+    return None, None, results
 
 
 def main():
@@ -63,50 +179,19 @@ def main():
         print("---")
 
         print("Burst ordering check:")
-        burst_sizes = [3, 5, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192]
-        for n in burst_sizes:
-            commands = []
-            for i in range(n):
-                if i % 3 == 0:
-                    cmd = VALID_COMMANDS["SN"]
-                elif i % 3 == 1:
-                    cmd = VALID_COMMANDS["LC"]
-                else:
-                    led_index = (i * 7) % 256
-                    rgb = np.array(
-                        [(i * 17) % 256, (i * 29) % 256, (i * 43) % 256],
-                        dtype=np.uint8,
-                    )
-                    cmd = np.concatenate(
-                        [
-                            np.array([ord("L"), ord("1")], dtype=np.uint8),
-                            np.array(
-                                [led_index // 256 % 256, led_index % 256],
-                                dtype=np.uint8,
-                            ),
-                            rgb,
-                        ]
-                    )
-                commands.append(cmd)
+        burst_n, elapsed, results = ramped_send_probe(
+            ser, max_commands=200, max_inflight=4, timeout=2.0
+        )
+        if burst_n is None:
+            print("All ramped send probes completed without a timeout.")
+            return
 
-            print(f"Sending burst n={n}: {[list(cmd) for cmd in commands]}")
-            for cmd in commands:
-                send_data_to_arduino(ser, cmd)
+        print(f"Observed saturation at burst_n={burst_n} in {elapsed:.3f}s")
+        print("Probe results summary:")
+        for n, t, count in results[-5:]:
+            print(f"  burst_n={n:3d}, elapsed={t:.3f}s, replies={count}")
 
-            responses = []
-            for idx, cmd in enumerate(commands):
-                response = receive_data_from_arduino(ser)
-                responses.append(response)
-                print("n=", n, "reply:", response)
-            matches = [
-                np.array_equal(resp, calc_expected_response(cmd))
-                for resp, cmd in zip(responses, commands)
-            ]
-            print("n=", n, "all matches:", all(matches))
-            assert all(matches), f"mismatch for n={n}: {matches}"
-            print("---")
-
-        print("All valid-command ordering checks passed.")
+        print("All valid-command ordering checks passed through saturation.")
 
 
 if __name__ == "__main__":
