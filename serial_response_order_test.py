@@ -161,9 +161,17 @@ def main():
             ser, max_commands=200, max_inflight=4, timeout=2.0
         )
         if burst_n is None:
+            print("probe completed without saturation up to max_commands=200")
+            print(
+                "last results:",
+                results[-3:] if results else [],
+            )
             return
 
-        _ = (burst_n, elapsed, results)
+        print(
+            f"saturation observed at burst_n={burst_n}, elapsed={elapsed:.3f}s"
+        )
+        print("recent results:", results[-3:] if results else [])
 
 
 if __name__ == "__main__":
