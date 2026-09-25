@@ -1,9 +1,10 @@
 import logging
 import threading
 import time
+from collections import deque
 from itertools import pairwise
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 
 import numpy as np
 import serial
@@ -220,12 +221,21 @@ def calc_expected_response(cmd):
 
 
 class BoardSerialWorker(threading.Thread):
-    """Serialize access to one board so commands remain ordered."""
+    """Keep one board's serial traffic ordered while allowing a small
+    in-flight window for command pipelining.
 
-    def __init__(self, ser, queue_size=0):
+    The worker keeps at most ``max_inflight`` commands outstanding. Each
+    command is sent immediately while there is room; responses are then read
+    and validated in FIFO order as soon as they become available. This keeps
+    ordering strict while avoiding the fully serial "send then wait for the
+    matching response before sending another" behaviour.
+    """
+
+    def __init__(self, ser, queue_size=0, max_inflight=4):
         super().__init__(daemon=True)
         self.ser = ser
         self.queue = Queue(maxsize=queue_size)
+        self.max_inflight = max_inflight
         self._stop_event = threading.Event()
 
     def enqueue(self, cmd):
@@ -236,15 +246,58 @@ class BoardSerialWorker(threading.Thread):
         self._stop_event.set()
         self.queue.put(None)
 
+    def _validate_response(self, response, expected_response):
+        if np.array_equal(response, expected_response):
+            logger.debug("Resp rec'd")
+            return True
+        if np.array_equal(response[:2], [0, 0]):
+            logger.debug("Debug msg: %s", bytes(response[2:]).decode())
+            return True
+        logger.warning(
+            "Resp invalid, expected %s, got %s",
+            expected_response,
+            response,
+        )
+        return False
+
     def run(self):
+        inflight = deque()
+
         while True:
-            cmd = self.queue.get()
-            if cmd is None:
+            while len(inflight) < self.max_inflight:
+                try:
+                    cmd = self.queue.get_nowait()
+                except Empty:
+                    break
+                if cmd is None:
+                    self.queue.task_done()
+                    self._stop_event.set()
+                    break
+                send_data_to_arduino(self.ser, cmd)
+                inflight.append((cmd, calc_expected_response(cmd)))
                 self.queue.task_done()
+
+            in_waiting = getattr(self.ser, "in_waiting", 0)
+            if inflight and in_waiting > 0:
+                response = receive_data_from_arduino(self.ser)
+                cmd, expected_response = inflight.popleft()
+                self._validate_response(response, expected_response)
+
+            if (
+                self._stop_event.is_set()
+                and not inflight
+                and self.queue.empty()
+            ):
                 break
-            send_data_to_arduino(self.ser, cmd)
-            check_response(self.ser, cmd)
-            self.queue.task_done()
+
+            if (
+                not inflight
+                and self.queue.empty()
+                and self._stop_event.is_set()
+            ):
+                break
+
+            time.sleep(0.0005)
 
 
 def check_response(ser, cmd, timeout_after=1):

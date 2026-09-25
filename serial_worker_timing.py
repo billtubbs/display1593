@@ -99,8 +99,11 @@ def _run_instrumented_worker_benchmark(
 
     try:
         for rep in range(repeats):
+            # Keep the benchmark safe on real hardware: the display is very
+            # bright even at 32, so use a low brightness ceiling for the test
+            # pattern to avoid tripping the power breakers.
             rgb = np.random.default_rng(42 + rep).integers(
-                0, 256, size=(n_leds, 3), dtype=np.uint8
+                0, 8, size=(n_leds, 3), dtype=np.uint8
             )
             led_ids = np.arange(n_leds, dtype=np.int32)
 
@@ -162,28 +165,41 @@ def _run_mock_display(n_leds, repeats, batch_size):
 
 def run_benchmark(n_leds, repeats, batch_size, mock_mode):
     """Run the benchmark and print a compact report."""
-    if mock_mode:
-        display = Display1593()
-        max_leds = display.n_leds
-        n_leds = min(n_leds, max_leds)
-        results = _run_mock_display(n_leds, repeats, batch_size)
-    else:
-        display = Display1593()
-        max_leds = display.n_leds
-        n_leds = min(n_leds, max_leds)
-        display.connect()
-        display.start_serial_workers()
-        try:
-            results = _run_instrumented_worker_benchmark(
-                display,
-                n_leds=n_leds,
-                repeats=repeats,
-                batch_size=batch_size,
-                mock_mode=False,
-            )
-        finally:
-            display.stop_serial_workers()
-            display.disconnect()
+    display = None
+    try:
+        if mock_mode:
+            display = Display1593()
+            max_leds = display.n_leds
+            n_leds = min(n_leds, max_leds)
+            results = _run_mock_display(n_leds, repeats, batch_size)
+        else:
+            display = Display1593()
+            max_leds = display.n_leds
+            n_leds = min(n_leds, max_leds)
+            display.connect()
+            display.start_serial_workers()
+            try:
+                results = _run_instrumented_worker_benchmark(
+                    display,
+                    n_leds=n_leds,
+                    repeats=repeats,
+                    batch_size=batch_size,
+                    mock_mode=False,
+                )
+            finally:
+                try:
+                    display.clear_all()
+                    display.show_now()
+                finally:
+                    display.stop_serial_workers()
+                    display.disconnect()
+    finally:
+        if display is not None and not mock_mode:
+            try:
+                display.clear_all()
+                display.show_now()
+            except Exception:
+                pass
 
     print("Serial worker timing benchmark")
     print("=" * 72)

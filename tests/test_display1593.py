@@ -35,6 +35,7 @@ def test_board_serial_worker_preserves_queue_order(monkeypatch):
     class DummySerial:
         def __init__(self):
             self.closed = False
+            self.in_waiting = 0
 
     def fake_send(ser, cmd):
         sent.append(cmd.copy())
@@ -74,6 +75,83 @@ def test_board_serial_worker_preserves_queue_order(monkeypatch):
             )
         )
         assert all(np.array_equal(a, b) for a, b in zip(processed, sent))
+    finally:
+        worker.shutdown()
+        worker.join(timeout=1)
+
+
+def test_board_serial_worker_uses_bounded_inflight_fifo(monkeypatch):
+    sent = []
+    responses = []
+
+    class DummySerial:
+        def __init__(self):
+            self.in_waiting = 0
+            self._pending = [
+                np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8),
+                np.array([2, 0, 0, 0, 0, 0], dtype=np.uint8),
+                np.array([3, 0, 0, 0, 0, 0], dtype=np.uint8),
+            ]
+
+    class DummySerialLegacy:
+        def __init__(self):
+            self._pending = [
+                np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8),
+                np.array([2, 0, 0, 0, 0, 0], dtype=np.uint8),
+                np.array([3, 0, 0, 0, 0, 0], dtype=np.uint8),
+            ]
+
+    def fake_send(ser, cmd):
+        sent.append(cmd.copy())
+        ser.in_waiting = 1
+
+    def fake_receive(ser):
+        ser.in_waiting = 0
+        return responses.pop(0)
+
+    def fake_validate(self, response, expected):
+        return True
+
+    monkeypatch.setattr(
+        "display1593.display1593.send_data_to_arduino", fake_send
+    )
+    monkeypatch.setattr(
+        "display1593.display1593.receive_data_from_arduino", fake_receive
+    )
+    monkeypatch.setattr(
+        "display1593.display1593.BoardSerialWorker._validate_response",
+        fake_validate,
+    )
+
+    serial = DummySerial()
+    responses = serial._pending
+    worker = BoardSerialWorker(serial, queue_size=8, max_inflight=3)
+    worker.start()
+
+    try:
+        for cmd in [
+            np.array([1, 2, 3], dtype=np.uint8),
+            np.array([4, 5, 6], dtype=np.uint8),
+            np.array([7, 8, 9], dtype=np.uint8),
+        ]:
+            worker.enqueue(cmd)
+
+        deadline = time.monotonic() + 0.5
+        while len(sent) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert len(sent) == 3
+        assert all(
+            np.array_equal(a, b)
+            for a, b in zip(
+                sent,
+                [
+                    np.array([1, 2, 3], dtype=np.uint8),
+                    np.array([4, 5, 6], dtype=np.uint8),
+                    np.array([7, 8, 9], dtype=np.uint8),
+                ],
+            )
+        )
     finally:
         worker.shutdown()
         worker.join(timeout=1)
