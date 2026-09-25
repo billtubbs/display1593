@@ -254,7 +254,7 @@ class BoardSerialWorker(threading.Thread):
     """
 
     def __init__(
-        self, ser, queue_size=0, max_inflight=1, response_timeout=2.0
+        self, ser, queue_size=0, max_inflight=5, response_timeout=2.0
     ):
         super().__init__(daemon=True)
         self.ser = ser
@@ -378,9 +378,13 @@ class Display1593:
         baud_rate=BAUD_RATE,
         number_of_leds=NUMBER_OF_LEDS,
         lock_path=None,
+        max_inflight=5,
+        response_timeout=2.0,
     ):
         self.ports = ports
         self.baud_rate = baud_rate
+        self.max_inflight = max_inflight
+        self.response_timeout = response_timeout
         self._lock = (
             DisplayLock() if lock_path is None else DisplayLock(lock_path)
         )
@@ -490,10 +494,20 @@ class Display1593:
             self._lock.release()
             raise
 
-    def start_serial_workers(self):
+    def start_serial_workers(self, max_inflight=None, response_timeout=None):
+        if max_inflight is None:
+            max_inflight = self.max_inflight
+        if response_timeout is None:
+            response_timeout = self.response_timeout
+
         self.stop_serial_workers()
         self.serial_workers = [
-            BoardSerialWorker(ser) for ser in self._connections
+            BoardSerialWorker(
+                ser,
+                max_inflight=max_inflight,
+                response_timeout=response_timeout,
+            )
+            for ser in self._connections
         ]
         for worker in self.serial_workers:
             worker.start()
