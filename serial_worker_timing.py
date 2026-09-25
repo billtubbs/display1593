@@ -61,6 +61,7 @@ def _run_instrumented_worker_benchmark(
     repeats,
     batch_size,
     mock_mode,
+    debug_responses=False,
 ):
     """Run one benchmark sequence and return timing summaries."""
     send_times = []
@@ -73,6 +74,13 @@ def _run_instrumented_worker_benchmark(
 
     original_send = disp_mod.send_data_to_arduino
     original_check = disp_mod.check_response
+    original_receive = disp_mod.receive_data_from_arduino
+    original_validate = disp_mod.BoardSerialWorker._validate_response
+
+    debug_events = []
+    seen_debug = 0
+    seen_unknown = 0
+    seen_mismatch = 0
 
     def timed_send(ser, cmd):
         t0 = time.perf_counter_ns()
@@ -94,8 +102,61 @@ def _run_instrumented_worker_benchmark(
         with lock:
             response_times.append(elapsed)
 
+    def logged_receive(ser):
+        response = original_receive(ser)
+        if debug_responses:
+            print(
+                f"RAW RESPONSE: {np.asarray(response, dtype=np.uint8).tolist()} "
+                f"len={len(response)}"
+            )
+        return response
+
+    def logged_validate(self, response, expected_response):
+        nonlocal seen_debug, seen_unknown, seen_mismatch
+        kind = disp_mod.classify_response(response)
+        if kind == "debug":
+            seen_debug += 1
+            if debug_responses:
+                print(
+                    "DEBUG PACKET: "
+                    f"expected={np.asarray(expected_response, dtype=np.uint8).tolist()} "
+                    f"got={np.asarray(response, dtype=np.uint8).tolist()}"
+                )
+            return True
+        if kind == "unknown":
+            seen_unknown += 1
+            if debug_responses:
+                print(
+                    "UNKNOWN PACKET: "
+                    f"expected={np.asarray(expected_response, dtype=np.uint8).tolist()} "
+                    f"got={np.asarray(response, dtype=np.uint8).tolist()}"
+                )
+            return False
+        if kind == "checksum" and not np.array_equal(
+            response, expected_response
+        ):
+            seen_mismatch += 1
+            if debug_responses:
+                print(
+                    "MISMATCH: "
+                    f"expected={np.asarray(expected_response, dtype=np.uint8).tolist()} "
+                    f"got={np.asarray(response, dtype=np.uint8).tolist()}"
+                )
+            debug_events.append(
+                {
+                    "expected": np.asarray(
+                        expected_response, dtype=np.uint8
+                    ).copy(),
+                    "got": np.asarray(response, dtype=np.uint8).copy(),
+                }
+            )
+            return False
+        return original_validate(self, response, expected_response)
+
     disp_mod.send_data_to_arduino = timed_send
     disp_mod.check_response = timed_check
+    disp_mod.receive_data_from_arduino = logged_receive
+    disp_mod.BoardSerialWorker._validate_response = logged_validate
 
     try:
         for rep in range(repeats):
@@ -131,6 +192,8 @@ def _run_instrumented_worker_benchmark(
     finally:
         disp_mod.send_data_to_arduino = original_send
         disp_mod.check_response = original_check
+        disp_mod.receive_data_from_arduino = original_receive
+        disp_mod.BoardSerialWorker._validate_response = original_validate
 
     return {
         "generation_ms": np.array(generation_times) / 1_000_000,
@@ -139,10 +202,14 @@ def _run_instrumented_worker_benchmark(
         "response_ms": np.array(response_times) / 1_000_000,
         "show_now_ms": np.array(show_now_times) / 1_000_000,
         "total_ms": np.array(total_times) / 1_000_000,
+        "debug_events": debug_events,
+        "seen_debug": seen_debug,
+        "seen_unknown": seen_unknown,
+        "seen_mismatch": seen_mismatch,
     }
 
 
-def _run_mock_display(n_leds, repeats, batch_size):
+def _run_mock_display(n_leds, repeats, batch_size, debug_responses=False):
     display = Display1593()
     display._connections = [
         DummySerial("dummy-ttyACM0"),
@@ -156,6 +223,7 @@ def _run_mock_display(n_leds, repeats, batch_size):
             repeats=repeats,
             batch_size=batch_size,
             mock_mode=True,
+            debug_responses=debug_responses,
         )
     finally:
         display.stop_serial_workers()
@@ -163,7 +231,9 @@ def _run_mock_display(n_leds, repeats, batch_size):
             ser.close()
 
 
-def run_benchmark(n_leds, repeats, batch_size, mock_mode):
+def run_benchmark(
+    n_leds, repeats, batch_size, mock_mode, debug_responses=False
+):
     """Run the benchmark and print a compact report."""
     display = None
     try:
@@ -171,7 +241,9 @@ def run_benchmark(n_leds, repeats, batch_size, mock_mode):
             display = Display1593()
             max_leds = display.n_leds
             n_leds = min(n_leds, max_leds)
-            results = _run_mock_display(n_leds, repeats, batch_size)
+            results = _run_mock_display(
+                n_leds, repeats, batch_size, debug_responses=debug_responses
+            )
         else:
             display = Display1593()
             max_leds = display.n_leds
@@ -185,6 +257,7 @@ def run_benchmark(n_leds, repeats, batch_size, mock_mode):
                     repeats=repeats,
                     batch_size=batch_size,
                     mock_mode=False,
+                    debug_responses=debug_responses,
                 )
             finally:
                 try:
@@ -204,8 +277,21 @@ def run_benchmark(n_leds, repeats, batch_size, mock_mode):
     print("Serial worker timing benchmark")
     print("=" * 72)
     print(f"n_leds={n_leds}  repeats={repeats}  batch_size={batch_size}")
-    print(f"mock_mode={mock_mode}")
+    print(f"mock_mode={mock_mode}  debug_responses={debug_responses}")
     print()
+
+    if debug_responses:
+        print(
+            "response summary: "
+            f"debug={results['seen_debug']} unknown={results['seen_unknown']} "
+            f"mismatch={results['seen_mismatch']}"
+        )
+        if results["debug_events"]:
+            for idx, evt in enumerate(results["debug_events"][:10]):
+                print(
+                    f"event {idx}: expected={evt['expected'].tolist()} got={evt['got'].tolist()}"
+                )
+        print()
 
     names = [
         ("generation", "generation_ms"),
@@ -260,6 +346,11 @@ def main():
         action="store_true",
         help="Run without hardware using dummy serial ports.",
     )
+    parser.add_argument(
+        "--debug-responses",
+        action="store_true",
+        help="Log every raw serial response, mismatch, and malformed packet.",
+    )
     args = parser.parse_args()
 
     if args.n_leds <= 0:
@@ -274,6 +365,7 @@ def main():
         repeats=args.repeat,
         batch_size=args.batch_size,
         mock_mode=args.mock,
+        debug_responses=args.debug_responses,
     )
 
 
