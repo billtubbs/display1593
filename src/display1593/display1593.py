@@ -220,6 +220,24 @@ def calc_expected_response(cmd):
     return expected_response
 
 
+def classify_response(response):
+    """Classify a raw serial response.
+
+    The current protocol does not include an explicit type byte. We infer the
+    type from the packet shape instead:
+
+    - response beginning with [0, 0] is a debug/hello message
+    - response length 6 is a checksum response
+    - anything else is unknown / malformed
+    """
+    response = np.asarray(response, dtype=np.uint8)
+    if response.shape[0] >= 2 and response[0] == 0 and response[1] == 0:
+        return "debug"
+    if response.shape[0] == 6:
+        return "checksum"
+    return "unknown"
+
+
 class BoardSerialWorker(threading.Thread):
     """Keep one board's serial traffic ordered while allowing a small
     in-flight window for command pipelining.
@@ -247,12 +265,20 @@ class BoardSerialWorker(threading.Thread):
         self.queue.put(None)
 
     def _validate_response(self, response, expected_response):
-        if np.array_equal(response, expected_response):
+        kind = classify_response(response)
+        if kind == "checksum" and np.array_equal(response, expected_response):
             logger.debug("Resp rec'd")
             return True
-        if np.array_equal(response[:2], [0, 0]):
+        if kind == "debug":
             logger.debug("Debug msg: %s", bytes(response[2:]).decode())
             return True
+        if kind == "unknown":
+            logger.warning(
+                "Resp invalid, expected %s, got %s",
+                expected_response,
+                response,
+            )
+            return False
         logger.warning(
             "Resp invalid, expected %s, got %s",
             expected_response,
@@ -308,9 +334,12 @@ def check_response(ser, cmd, timeout_after=1):
         if ser.in_waiting > 0:
             waiting = False
             response = receive_data_from_arduino(ser)
-            if np.array_equal(response, expected_response):
+            kind = classify_response(response)
+            if kind == "checksum" and np.array_equal(
+                response, expected_response
+            ):
                 logger.debug("Resp rec'd")
-            elif np.array_equal(response[:2], [0, 0]):
+            elif kind == "debug":
                 logger.debug("Debug msg: %s", bytes(response[2:]).decode())
             else:
                 logger.warning(

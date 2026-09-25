@@ -8,6 +8,39 @@ from display1593.data.ledArray_data_1593 import num_cells
 from display1593.display1593 import BoardSerialWorker, Display1593
 
 
+def test_response_classifier_distinguishes_debug_and_checksum():
+    from display1593.display1593 import classify_response
+
+    debug_resp = np.array(
+        [
+            0,
+            0,
+            73,
+            110,
+            118,
+            97,
+            108,
+            105,
+            100,
+            32,
+            99,
+            111,
+            109,
+            109,
+            97,
+            110,
+            100,
+        ],
+        dtype=np.uint8,
+    )
+    checksum_resp = np.array([0, 2, 0, 0, 0, 161], dtype=np.uint8)
+    malformed = np.array([1, 2, 3], dtype=np.uint8)
+
+    assert classify_response(debug_resp) == "debug"
+    assert classify_response(checksum_resp) == "checksum"
+    assert classify_response(malformed) == "unknown"
+
+
 class NearestNeighboursAttributeTests(unittest.TestCase):
     def setUp(self):
         self.display = Display1593()
