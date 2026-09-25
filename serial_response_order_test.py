@@ -48,11 +48,6 @@ def expect_reply(ser, cmd):
     response = receive_data_from_arduino(ser)
     expected = calc_expected_response(cmd)
     match = bool(np.array_equal(response, expected))
-    print("CMD:", cmd)
-    print("EXP:", expected)
-    print("GOT:", response)
-    print("MATCH:", match)
-    print("---")
     assert match, f"expected {expected}, got {response} for command {cmd}"
     return response
 
@@ -103,7 +98,6 @@ def run_burst_in_order(ser, commands, max_inflight=4, timeout=2.0):
             response = receive_with_timeout(ser, timeout=timeout)
             cmd, expected = inflight.popleft()
             responses.append(response)
-            print("reply:", response)
             if not np.array_equal(response, expected):
                 raise AssertionError(
                     f"expected {expected}, got {response} for command {cmd}"
@@ -132,10 +126,6 @@ def ramped_send_probe(ser, max_commands=400, max_inflight=4, timeout=2.0):
             )
         except TimeoutError as exc:
             elapsed = time.perf_counter() - t0
-            print(
-                f"SATURATION: burst_n={burst_n}, elapsed={elapsed:.3f}s, "
-                f"timeout={exc}"
-            )
             return (
                 burst_n,
                 elapsed,
@@ -144,22 +134,16 @@ def ramped_send_probe(ser, max_commands=400, max_inflight=4, timeout=2.0):
 
         elapsed = time.perf_counter() - t0
         results.append((burst_n, elapsed, len(responses)))
-        if burst_n in {1, 2, 3, 5, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192}:
-            print(f"ramp burst_n={burst_n}, elapsed={elapsed:.3f}s")
 
-    print("No saturation observed up to max_commands=", max_commands)
     return None, None, results
 
 
 def main():
     with Display1593() as dis:
-        print("Connected")
         ser = dis._connections[0]
 
-        print("Single command check:")
         expect_reply(ser, VALID_COMMANDS["SN"])
 
-        print("Two-command check:")
         cmd2a = VALID_COMMANDS["SN"]
         cmd2b = VALID_COMMANDS["LC"]
         send_data_to_arduino(ser, cmd2a)
@@ -170,28 +154,16 @@ def main():
 
         expected1 = calc_expected_response(cmd2a)
         expected2 = calc_expected_response(cmd2b)
-        print("EXP1:", expected1)
-        print("GOT1:", r1, "MATCH1:", bool(np.array_equal(r1, expected1)))
-        print("EXP2:", expected2)
-        print("GOT2:", r2, "MATCH2:", bool(np.array_equal(r2, expected2)))
         assert np.array_equal(r1, expected1)
         assert np.array_equal(r2, expected2)
-        print("---")
 
-        print("Burst ordering check:")
         burst_n, elapsed, results = ramped_send_probe(
             ser, max_commands=200, max_inflight=4, timeout=2.0
         )
         if burst_n is None:
-            print("All ramped send probes completed without a timeout.")
             return
 
-        print(f"Observed saturation at burst_n={burst_n} in {elapsed:.3f}s")
-        print("Probe results summary:")
-        for n, t, count in results[-5:]:
-            print(f"  burst_n={n:3d}, elapsed={t:.3f}s, replies={count}")
-
-        print("All valid-command ordering checks passed through saturation.")
+        _ = (burst_n, elapsed, results)
 
 
 if __name__ == "__main__":
