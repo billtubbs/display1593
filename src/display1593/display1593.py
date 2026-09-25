@@ -47,6 +47,31 @@ uint8_array_2d = types.Array(types.uint8, 2, "C")
 # module - see display1593.logging_utils.configure_root_logging().
 logger = logging.getLogger(__name__)
 
+
+def _drain_serial_input(ser, timeout=0.25):
+    """Discard stale bytes in the local serial RX buffer.
+
+    This is a Python-side mitigation for residual bytes left behind from an
+    earlier session or a previous failed burst. It cannot clear bytes the
+    Arduino is still actively sending, but it does remove any stale traffic that
+    is already queued in the local USB driver before the board hello is read.
+    """
+    try:
+        if hasattr(ser, "reset_input_buffer"):
+            ser.reset_input_buffer()
+    except (AttributeError, OSError, serial.SerialException):
+        pass
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if getattr(ser, "in_waiting", 0) <= 0:
+                break
+            ser.read(getattr(ser, "in_waiting", 0))
+        except (AttributeError, OSError, serial.SerialException):
+            break
+
+
 COMMAND_LC = np.array(list(b"LC"), dtype=np.uint8)  # implemented
 COMMAND_SN = np.array(list(b"SN"), dtype=np.uint8)
 
@@ -435,6 +460,7 @@ class Display1593:
             for port in self.ports:
                 for attempt in range(1, max_attempts + 1):
                     ser = serial.Serial(port, baudrate=self.baud_rate)
+                    _drain_serial_input(ser)
                     # connect_to_arduino() has no checksum on the hello
                     # message it waits for (see check_response() for the
                     # checksummed alternative used elsewhere), so a
