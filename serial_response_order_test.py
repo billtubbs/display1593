@@ -72,10 +72,19 @@ def main():
                 elif i % 3 == 1:
                     cmd = VALID_COMMANDS["LC"]
                 else:
+                    led_index = (i * 7) % 256
+                    rgb = np.array(
+                        [(i * 17) % 256, (i * 29) % 256, (i * 43) % 256],
+                        dtype=np.uint8,
+                    )
                     cmd = np.concatenate(
                         [
-                            VALID_COMMANDS["L1"],
-                            np.array([i % 251], dtype=np.uint8),
+                            np.array([ord("L"), ord("1")], dtype=np.uint8),
+                            np.array(
+                                [led_index // 256 % 256, led_index % 256],
+                                dtype=np.uint8,
+                            ),
+                            rgb,
                         ]
                     )
                 commands.append(cmd)
