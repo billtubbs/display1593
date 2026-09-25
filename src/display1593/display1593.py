@@ -247,14 +247,22 @@ class BoardSerialWorker(threading.Thread):
     and validated in FIFO order as soon as they become available. This keeps
     ordering strict while avoiding the fully serial "send then wait for the
     matching response before sending another" behaviour.
+
+    A response timeout protects against deadlocks where the board stops
+    producing replies and the host would otherwise block forever waiting for the
+    next byte-to-byte frame.
     """
 
-    def __init__(self, ser, queue_size=0, max_inflight=4):
+    def __init__(
+        self, ser, queue_size=0, max_inflight=1, response_timeout=2.0
+    ):
         super().__init__(daemon=True)
         self.ser = ser
         self.queue = Queue(maxsize=queue_size)
         self.max_inflight = max_inflight
+        self.response_timeout = response_timeout
         self._stop_event = threading.Event()
+        self.last_error = None
 
     def enqueue(self, cmd):
         cmd = np.asarray(cmd, dtype=np.uint8).copy()
@@ -300,27 +308,38 @@ class BoardSerialWorker(threading.Thread):
                     self._stop_event.set()
                     break
                 send_data_to_arduino(self.ser, cmd)
-                inflight.append((cmd, calc_expected_response(cmd)))
+                inflight.append(
+                    (cmd, calc_expected_response(cmd), time.monotonic())
+                )
                 self.queue.task_done()
 
-            in_waiting = getattr(self.ser, "in_waiting", 0)
-            if inflight and in_waiting > 0:
-                response = receive_data_from_arduino(self.ser)
-                cmd, expected_response = inflight.popleft()
-                self._validate_response(response, expected_response)
+            if not inflight:
+                if self._stop_event.is_set() and self.queue.empty():
+                    break
+                time.sleep(0.0005)
+                continue
 
-            if (
-                self._stop_event.is_set()
-                and not inflight
-                and self.queue.empty()
-            ):
+            in_waiting = getattr(self.ser, "in_waiting", 0)
+            if in_waiting > 0:
+                response = receive_data_from_arduino(self.ser)
+                cmd, expected_response, _ = inflight.popleft()
+                self._validate_response(response, expected_response)
+                continue
+
+            oldest_cmd, oldest_expected, sent_at = inflight[0]
+            if time.monotonic() - sent_at > self.response_timeout:
+                self.last_error = TimeoutError(
+                    "Timed out waiting for response to command "
+                    f"{oldest_cmd!r} after {self.response_timeout:.2f}s"
+                )
+                logger.warning(
+                    "BoardSerialWorker timed out waiting for response to %s",
+                    oldest_cmd,
+                )
+                self._stop_event.set()
                 break
 
-            if (
-                not inflight
-                and self.queue.empty()
-                and self._stop_event.is_set()
-            ):
+            if self._stop_event.is_set() and self.queue.empty():
                 break
 
             time.sleep(0.0005)

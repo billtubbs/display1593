@@ -5,7 +5,11 @@ import unittest
 import numpy as np
 
 from display1593.data.ledArray_data_1593 import num_cells
-from display1593.display1593 import BoardSerialWorker, Display1593
+from display1593.display1593 import (
+    BoardSerialWorker,
+    Display1593,
+    calc_expected_response,
+)
 
 
 def test_response_classifier_distinguishes_debug_and_checksum():
@@ -64,6 +68,7 @@ class NearestNeighboursAttributeTests(unittest.TestCase):
 def test_board_serial_worker_preserves_queue_order(monkeypatch):
     sent = []
     processed = []
+    expected_responses = []
 
     class DummySerial:
         def __init__(self):
@@ -72,16 +77,31 @@ def test_board_serial_worker_preserves_queue_order(monkeypatch):
 
     def fake_send(ser, cmd):
         sent.append(cmd.copy())
+        expected_responses.append(calc_expected_response(cmd))
+        ser.in_waiting = 1
 
-    def fake_check(ser, cmd):
-        processed.append(cmd.copy())
+    def fake_receive(ser):
+        ser.in_waiting = 0
+        return expected_responses.pop(0)
+
+    def fake_validate(self, response, expected):
+        processed.append(expected.copy())
+        return True
 
     monkeypatch.setattr(
         "display1593.display1593.send_data_to_arduino", fake_send
     )
-    monkeypatch.setattr("display1593.display1593.check_response", fake_check)
+    monkeypatch.setattr(
+        "display1593.display1593.receive_data_from_arduino", fake_receive
+    )
+    monkeypatch.setattr(
+        "display1593.display1593.BoardSerialWorker._validate_response",
+        fake_validate,
+    )
 
-    worker = BoardSerialWorker(DummySerial(), queue_size=8)
+    worker = BoardSerialWorker(
+        DummySerial(), queue_size=8, max_inflight=1, response_timeout=0.5
+    )
     worker.start()
     try:
         for cmd in [
@@ -107,10 +127,40 @@ def test_board_serial_worker_preserves_queue_order(monkeypatch):
                 ],
             )
         )
-        assert all(np.array_equal(a, b) for a, b in zip(processed, sent))
+        expected_processed = [calc_expected_response(cmd) for cmd in sent]
+        assert all(
+            np.array_equal(a, b) for a, b in zip(processed, expected_processed)
+        )
     finally:
         worker.shutdown()
         worker.join(timeout=1)
+
+
+def test_board_serial_worker_timeout_when_reply_stalls(monkeypatch):
+    class DummySerial:
+        def __init__(self):
+            self.in_waiting = 0
+
+    def fake_send(ser, cmd):
+        pass
+
+    monkeypatch.setattr(
+        "display1593.display1593.send_data_to_arduino", fake_send
+    )
+
+    worker = BoardSerialWorker(
+        DummySerial(), queue_size=8, max_inflight=1, response_timeout=0.02
+    )
+    worker.start()
+    worker.enqueue(np.array([9, 9, 9], dtype=np.uint8))
+
+    deadline = time.monotonic() + 1
+    while worker.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+    assert isinstance(worker.last_error, TimeoutError)
 
 
 def test_board_serial_worker_uses_bounded_inflight_fifo(monkeypatch):
