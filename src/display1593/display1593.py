@@ -403,6 +403,16 @@ class Display1593:
             raise IndexError("board_index out of range")
         self.serial_workers[board_index].enqueue(cmd)
 
+    def _submit_board_commands(self, board_index, cmds):
+        if not isinstance(cmds, (list, tuple)):
+            cmds = [cmds]
+        for cmd in cmds:
+            self.submit_serial_command(board_index, cmd)
+
+    def _queue_refresh(self):
+        for worker in self.serial_workers:
+            worker.enqueue(COMMAND_SN)
+
     def stop_serial_workers(self):
         for worker in self.serial_workers:
             if worker.is_alive():
@@ -449,7 +459,7 @@ class Display1593:
             (76, 49, led_id // 256 % 256, led_id % 256, *rgb), dtype=np.uint8
         )
         if self._serial_workers_active():
-            self.submit_serial_command(board_index, cmd)
+            self._submit_board_commands(board_index, [cmd])
             return
         ser = self._connections[board_index]
         send_data_to_arduino(ser, cmd)
@@ -478,7 +488,7 @@ class Display1593:
                         np.hstack((idx, rgb_array)).flatten(),
                     ]
                 ).astype(np.uint8)
-                self.submit_serial_command(board_index, cmd)
+                self._submit_board_commands(board_index, [cmd])
             return
 
         cmds_sent = {}
@@ -518,7 +528,7 @@ class Display1593:
                 cmd = np.concatenate(
                     [(67, 78, n // 256 % 256, n % 256, *rgb), idx.flatten()]
                 ).astype(np.uint8)
-                self.submit_serial_command(board_index, cmd)
+                self._submit_board_commands(board_index, [cmd])
             return
 
         cmds_sent = {}
@@ -544,7 +554,7 @@ class Display1593:
                 cmd = np.concatenate(
                     [(76, 65), rgb_array[i:j].flatten()]
                 ).astype(np.uint8)
-                self.submit_serial_command(board_index, cmd)
+                self._submit_board_commands(board_index, [cmd])
             return
 
         cmds_sent = {}
@@ -588,12 +598,13 @@ class Display1593:
 
     def show_now(self):
         logger.debug("Method show_now.")
-        # Command SN - implemented
-        # TODO: In future this will be synchronized by comms between boards
+        # Command SN - implemented.
+        # This is the host-side frame boundary: everything queued before this
+        # call is the current frame; everything queued after it belongs to the
+        # next refresh cycle.
         cmd = COMMAND_SN
         if self._serial_workers_active():
-            for worker in self.serial_workers:
-                worker.enqueue(cmd)
+            self._queue_refresh()
             return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
