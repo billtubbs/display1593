@@ -63,11 +63,22 @@ def main():
         print("---")
 
         print("Burst ordering check:")
-        for n in [3, 5, 8, 12, 16]:
-            commands = [
-                VALID_COMMANDS["SN"] if i % 2 == 0 else VALID_COMMANDS["LC"]
-                for i in range(n)
-            ]
+        burst_sizes = [3, 5, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192]
+        for n in burst_sizes:
+            commands = []
+            for i in range(n):
+                if i % 3 == 0:
+                    cmd = VALID_COMMANDS["SN"]
+                elif i % 3 == 1:
+                    cmd = VALID_COMMANDS["LC"]
+                else:
+                    cmd = np.concatenate(
+                        [
+                            VALID_COMMANDS["L1"],
+                            np.array([i % 251], dtype=np.uint8),
+                        ]
+                    )
+                commands.append(cmd)
             for cmd in commands:
                 send_data_to_arduino(ser, cmd)
             responses = []
