@@ -136,6 +136,74 @@ def test_board_serial_worker_preserves_queue_order(monkeypatch):
         worker.join(timeout=1)
 
 
+def test_board_serial_worker_rejects_corrupt_response_after_two_commands(
+    monkeypatch,
+):
+    """Two queued commands are the smallest reproducer for a bad payload.
+
+    The board is single-threaded and enforces FIFO reply order, so the real host
+    bug is not out-of-order replies. The minimal valid regression is still two
+    commands in flight, followed by a malformed or corrupted response payload.
+    The host must reject that bad response instead of accepting it as a valid
+    checksum for the oldest outstanding command.
+    """
+    seen = []
+
+    class DummySerial:
+        def __init__(self):
+            self.in_waiting = 0
+            self.pending = []
+
+    first = np.array([1, 2, 3], dtype=np.uint8)
+    second = np.array([4, 5, 6], dtype=np.uint8)
+    expected_first = calc_expected_response(first)
+    expected_second = calc_expected_response(second)
+    corrupt = np.array([0, 3, 0, 0, 0, 15], dtype=np.uint8)
+
+    def fake_send(ser, cmd):
+        ser.pending.append(cmd.copy())
+        ser.in_waiting += 1
+
+    def fake_receive(ser):
+        ser.in_waiting = max(0, ser.in_waiting - 1)
+        return responses.pop(0)
+
+    def fake_validate(self, response, expected):
+        seen.append((response.copy(), expected.copy()))
+        return np.array_equal(response, expected)
+
+    monkeypatch.setattr(
+        "display1593.display1593.send_data_to_arduino", fake_send
+    )
+    monkeypatch.setattr(
+        "display1593.display1593.receive_data_from_arduino", fake_receive
+    )
+    monkeypatch.setattr(
+        "display1593.display1593.BoardSerialWorker._validate_response",
+        fake_validate,
+    )
+
+    serial = DummySerial()
+    responses = [corrupt, expected_second]
+    worker = BoardSerialWorker(serial, queue_size=8, max_inflight=2)
+    worker.start()
+
+    try:
+        worker.enqueue(first)
+        worker.enqueue(second)
+
+        deadline = time.monotonic() + 1
+        while len(seen) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert len(seen) == 2
+        assert not np.array_equal(seen[0][0], seen[0][1])
+        assert np.array_equal(seen[1][0], seen[1][1])
+    finally:
+        worker.shutdown()
+        worker.join(timeout=1)
+
+
 def test_board_serial_worker_timeout_when_reply_stalls(monkeypatch):
     class DummySerial:
         def __init__(self):
