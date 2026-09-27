@@ -74,7 +74,22 @@ Key pieces `display1593.py` relies on:
   `nearest_neighbours`, `nearest_neighbour_distances`) so callers (schelling,
   fluidsim) can do spatial reasoning without re-deriving it. Usable as a
   context manager (`with Display1593() as dis:`), which calls `connect()`/
-  `disconnect()`.
+  `disconnect()`. `connect()` drains stale bytes from each port's input
+  buffer before reading the board's hello message.
+  - **Sync vs. async serial.** By default every command is sent and its
+    checksummed response checked before returning. Calling
+    `start_serial_workers()` switches to an optional async pipeline: one
+    `BoardSerialWorker` thread per board, fed by a queue, that keeps up to
+    `max_inflight` commands outstanding and validates responses in FIFO
+    order, with a `response_timeout` that stops the worker (recording
+    `last_error`) instead of blocking forever. While workers are running,
+    `set_leds()`/`clear_all()`/`show_now()` etc. just enqueue and return
+    immediately (`submit_frame()`/`commit_frame()` are the frame-level
+    equivalents). **No entry-point script currently enables the workers**
+    - only `diagnostics/serial_worker_timing.py` does - so the clock,
+    fireplace, fluidsim etc. all run on the synchronous path. If a worker
+    dies (timeout), the driver falls back to the synchronous path
+    silently; errors are only logged, not raised to the caller.
 - **`lock.py`** - `DisplayLock`, a `flock()`-based, wait-then-timeout,
   cross-process exclusive lock (`/tmp/display1593.lock` by default) so two
   scripts can't drive the serial connections at once; `Display1593.connect()`
@@ -125,9 +140,20 @@ Key pieces `display1593.py` relies on:
 - **`check_led_neighbours.py`** - interactive terminal tool to visually
   verify the nearest-neighbour data against the physical display (lights one
   LED white, its neighbours red, step through with keypresses).
-- **`comm_led_test.py`, `led_command_tests.py`, `frame_display_speed_test.py`,
-  `test_fire_frames.py`** - lower-level hardware/protocol/timing test
-  scripts (some predate the `src/display1593` package layout and import
+
+### `diagnostics/`
+
+Hardware/protocol/timing scripts for debugging, not normal use. Run from
+the repo root (log files are written to the current directory).
+
+- **`async_display_smoke_test.py`** - minimal "does the Pi talk to both
+  boards" check: lights a few LEDs across both boards, then clears them.
+- **`serial_worker_timing.py`** - per-phase timing of the async serial
+  worker pipeline (command generation, queueing, send, response wait,
+  `show_now()`); `--mock` runs it without hardware.
+- **`comm_led_test.py`, `led_command_tests.py`,
+  `frame_display_speed_test.py`** - older low-level protocol/timing tests
+  (some predate the `src/display1593` package layout and import
   `serial_comm`/`display1593` more directly).
 
 ### `fireplace/`
@@ -135,6 +161,10 @@ Key pieces `display1593.py` relies on:
 `play_fire_frames.py` plays back precomputed per-LED RGB frames (one CSV per
 frame in `fireplace/data/`) in a loop at a fixed `TIME_STEP`, pacing itself
 against a monotonic clock and logging scheduled vs. actual frame times.
+`test_fire_frames.py` is an older experiment that cycles a few fire images
+from `images/` (currently missing from the repo, so it won't run as-is).
+Kept here rather than in `diagnostics/` so `fireplace/` stays
+self-contained in case it's split out of this repo.
 
 ### `fluidsim/`
 
