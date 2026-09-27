@@ -137,15 +137,15 @@ Key pieces `display1593.py` relies on:
   building a fresh KDTree over agent positions. Supports both the classic
   unweighted happiness rule and an inverse-distance-weighted one
   (`is_happy_weighted`, the default for agents here).
-- **`check_led_neighbours.py`** - interactive terminal tool to visually
-  verify the nearest-neighbour data against the physical display (lights one
-  LED white, its neighbours red, step through with keypresses).
 
 ### `diagnostics/`
 
 Hardware/protocol/timing scripts for debugging, not normal use. Run from
 the repo root (log files are written to the current directory).
 
+- **`check_led_neighbours.py`** - interactive terminal tool to visually
+  verify the nearest-neighbour data against the physical display (lights one
+  LED white, its neighbours red, step through with keypresses).
 - **`async_display_smoke_test.py`** - minimal "does the Pi talk to both
   boards" check: lights a few LEDs across both boards, then clears them.
 - **`serial_worker_timing.py`** - per-phase timing of the async serial

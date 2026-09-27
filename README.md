@@ -48,7 +48,8 @@ with Display1593() as dis:
 - `fireplace/` - plays back precomputed fire animation frames
 - `fluidsim/` - buoyancy-driven fluid flow simulation on the display
 - `diagnostics/` - hardware, protocol and timing test scripts (run from
-  the repo root), e.g. `async_display_smoke_test.py`,
+  the repo root), e.g. `check_led_neighbours.py`,
+  `async_display_smoke_test.py`,
   `serial_worker_timing.py`, `comm_led_test.py`,
   `frame_display_speed_test.py`, `led_command_tests.py`
 
