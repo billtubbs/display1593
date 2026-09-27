@@ -1,7 +1,10 @@
 import logging
+import threading
 import time
+from collections import deque
 from itertools import pairwise
 from pathlib import Path
+from queue import Empty, Queue
 
 import numpy as np
 import serial
@@ -43,6 +46,31 @@ uint8_array_2d = types.Array(types.uint8, 2, "C")
 # Log records are handled by whichever entry-point script imports this
 # module - see display1593.logging_utils.configure_root_logging().
 logger = logging.getLogger(__name__)
+
+
+def _drain_serial_input(ser, timeout=0.25):
+    """Discard stale bytes in the local serial RX buffer.
+
+    This is a Python-side mitigation for residual bytes left behind from an
+    earlier session or a previous failed burst. It cannot clear bytes the
+    Arduino is still actively sending, but it does remove any stale traffic that
+    is already queued in the local USB driver before the board hello is read.
+    """
+    try:
+        if hasattr(ser, "reset_input_buffer"):
+            ser.reset_input_buffer()
+    except (AttributeError, OSError, serial.SerialException):
+        pass
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if getattr(ser, "in_waiting", 0) <= 0:
+                break
+            ser.read(getattr(ser, "in_waiting", 0))
+        except (AttributeError, OSError, serial.SerialException):
+            break
+
 
 COMMAND_LC = np.array(list(b"LC"), dtype=np.uint8)  # implemented
 COMMAND_SN = np.array(list(b"SN"), dtype=np.uint8)
@@ -217,6 +245,157 @@ def calc_expected_response(cmd):
     return expected_response
 
 
+def classify_response(response):
+    """Classify a raw serial response.
+
+    The current protocol does not include an explicit type byte. We infer the
+    type from the packet shape instead:
+
+    - response beginning with [0, 0] is a debug/hello message
+    - response length 6 is a checksum response
+    - anything else is unknown / malformed
+    """
+    response = np.asarray(response, dtype=np.uint8)
+    if response.shape[0] >= 2 and response[0] == 0 and response[1] == 0:
+        return "debug"
+    if response.shape[0] == 6:
+        return "checksum"
+    return "unknown"
+
+
+class BoardSerialWorker(threading.Thread):
+    """Keep one board's serial traffic ordered while allowing a small
+    in-flight window for command pipelining.
+
+    The worker keeps at most ``max_inflight`` commands outstanding. Each
+    command is sent immediately while there is room; responses are then read
+    and validated in FIFO order as soon as they become available. This keeps
+    ordering strict while avoiding the fully serial "send then wait for the
+    matching response before sending another" behaviour.
+
+    A response timeout protects against deadlocks where the board stops
+    producing replies and the host would otherwise block forever waiting for the
+    next byte-to-byte frame.
+    """
+
+    def __init__(
+        self, ser, queue_size=0, max_inflight=5, response_timeout=2.0
+    ):
+        super().__init__(daemon=True)
+        self.ser = ser
+        self.queue = Queue(maxsize=queue_size)
+        self.max_inflight = max_inflight
+        self.response_timeout = response_timeout
+        self._stop_event = threading.Event()
+        self.last_error = None
+
+    def enqueue(self, cmd):
+        cmd = np.asarray(cmd, dtype=np.uint8).copy()
+        self.queue.put(cmd)
+
+    def shutdown(self):
+        self._stop_event.set()
+        self.queue.put(None)
+
+    def _validate_response(self, response, expected_response):
+        kind = classify_response(response)
+        if kind == "checksum" and np.array_equal(response, expected_response):
+            logger.debug("Resp rec'd")
+            return True
+        if kind == "debug":
+            logger.debug("Debug msg: %s", bytes(response[2:]).decode())
+            return True
+        if kind == "unknown":
+            logger.warning(
+                "Resp invalid, expected %s, got %s",
+                expected_response,
+                response,
+            )
+            return False
+        logger.warning(
+            "Resp invalid, expected %s, got %s",
+            expected_response,
+            response,
+        )
+        return False
+
+    def run(self):
+        inflight = deque()
+
+        while True:
+            while len(inflight) < self.max_inflight:
+                try:
+                    cmd = self.queue.get_nowait()
+                except Empty:
+                    break
+                if cmd is None:
+                    self.queue.task_done()
+                    self._stop_event.set()
+                    break
+                send_data_to_arduino(self.ser, cmd)
+                inflight.append(
+                    (cmd, calc_expected_response(cmd), time.monotonic())
+                )
+                self.queue.task_done()
+
+            if not inflight:
+                if self._stop_event.is_set() and self.queue.empty():
+                    break
+                time.sleep(0.0005)
+                continue
+
+            in_waiting = getattr(self.ser, "in_waiting", 0)
+            if in_waiting > 0:
+                response = receive_data_from_arduino(self.ser)
+                cmd, expected_response, _ = inflight.popleft()
+                self._validate_response(response, expected_response)
+                continue
+
+            oldest_cmd, oldest_expected, sent_at = inflight[0]
+            if time.monotonic() - sent_at > self.response_timeout:
+                self.last_error = TimeoutError(
+                    "Timed out waiting for response to command "
+                    f"{oldest_cmd!r} after {self.response_timeout:.2f}s"
+                )
+                logger.warning(
+                    "BoardSerialWorker timed out waiting for response to %s",
+                    oldest_cmd,
+                )
+                self._stop_event.set()
+                break
+
+            if self._stop_event.is_set() and self.queue.empty():
+                break
+
+            time.sleep(0.0005)
+
+
+def check_response(ser, cmd, timeout_after=1):
+    expected_response = calc_expected_response(cmd)
+    waiting = True
+    timeout_time = time.time() + timeout_after
+    while waiting:
+        if ser.in_waiting > 0:
+            waiting = False
+            response = receive_data_from_arduino(ser)
+            kind = classify_response(response)
+            if kind == "checksum" and np.array_equal(
+                response, expected_response
+            ):
+                logger.debug("Resp rec'd")
+            elif kind == "debug":
+                logger.debug("Debug msg: %s", bytes(response[2:]).decode())
+            else:
+                logger.warning(
+                    "Resp invalid, expected %s, got %s",
+                    expected_response,
+                    response,
+                )
+        if time.time() > timeout_time:
+            logger.warning("Timeout")
+            break
+
+
 class Display1593:
     def __init__(
         self,
@@ -224,9 +403,13 @@ class Display1593:
         baud_rate=BAUD_RATE,
         number_of_leds=NUMBER_OF_LEDS,
         lock_path=None,
+        max_inflight=5,
+        response_timeout=2.0,
     ):
         self.ports = ports
         self.baud_rate = baud_rate
+        self.max_inflight = max_inflight
+        self.response_timeout = response_timeout
         self._lock = (
             DisplayLock() if lock_path is None else DisplayLock(lock_path)
         )
@@ -242,6 +425,7 @@ class Display1593:
         )
         self.n_leds = self.led_idx[-1]
         self._connections = []
+        self.serial_workers = []
         self.nearest_neighbours = np.asarray(
             nearest_neighbours, dtype=np.uint16
         )
@@ -276,6 +460,7 @@ class Display1593:
             for port in self.ports:
                 for attempt in range(1, max_attempts + 1):
                     ser = serial.Serial(port, baudrate=self.baud_rate)
+                    _drain_serial_input(ser)
                     # connect_to_arduino() has no checksum on the hello
                     # message it waits for (see check_response() for the
                     # checksummed alternative used elsewhere), so a
@@ -326,35 +511,92 @@ class Display1593:
             self._connections = []
             for name in self.board_names:
                 self._connections.append(connections[name])
+
+            # Leave serial workers stopped until explicitly started; this keeps
+            # the existing synchronous API behaviour unchanged while enabling
+            # an optional async pipeline when needed.
+            self.serial_workers = []
         except Exception:
             self._lock.release()
             raise
 
+    def start_serial_workers(self, max_inflight=None, response_timeout=None):
+        if max_inflight is None:
+            max_inflight = self.max_inflight
+        if response_timeout is None:
+            response_timeout = self.response_timeout
+
+        self.stop_serial_workers()
+        self.serial_workers = [
+            BoardSerialWorker(
+                ser,
+                max_inflight=max_inflight,
+                response_timeout=response_timeout,
+            )
+            for ser in self._connections
+        ]
+        for worker in self.serial_workers:
+            worker.start()
+        return self.serial_workers
+
+    def submit_serial_command(self, board_index, cmd):
+        if not 0 <= board_index < len(self.serial_workers):
+            raise IndexError("board_index out of range")
+        self.serial_workers[board_index].enqueue(cmd)
+
+    def _submit_board_commands(self, board_index, cmds):
+        if not isinstance(cmds, (list, tuple)):
+            cmds = [cmds]
+        for cmd in cmds:
+            self.submit_serial_command(board_index, cmd)
+
+    def _queue_refresh(self):
+        for worker in self.serial_workers:
+            worker.enqueue(COMMAND_SN)
+
+    def submit_frame(self, board_commands):
+        """Queue one frame across boards without committing it yet.
+
+        board_commands should be a mapping of board index to a command or list of
+        commands for that board. The frame is not made visible until
+        show_now() is called, which is the host-side commit boundary.
+        """
+        for board_index, cmds in board_commands.items():
+            self._submit_board_commands(board_index, cmds)
+
+    def commit_frame(self):
+        """Host-side frame commit: instruct each board to show queued updates."""
+        if self._serial_workers_active():
+            self._queue_refresh()
+            return
+        for ser in self._connections:
+            send_data_to_arduino(ser, COMMAND_SN)
+        for ser in self._connections:
+            self.check_response(ser, COMMAND_SN)
+
+    def stop_serial_workers(self):
+        for worker in self.serial_workers:
+            if worker.is_alive():
+                worker.shutdown()
+        for worker in self.serial_workers:
+            if worker.is_alive():
+                worker.join(timeout=1)
+
+    def _serial_workers_active(self):
+        return bool(self.serial_workers) and all(
+            worker.is_alive() for worker in self.serial_workers
+        )
+
     def check_response(self, ser, cmd, timeout_after=1):
-        expected_response = calc_expected_response(cmd)
-        waiting = True
-        timeout_time = time.time() + timeout_after
-        while waiting:
-            if ser.in_waiting > 0:
-                waiting = False
-                response = receive_data_from_arduino(ser)
-                if np.array_equal(response, expected_response):
-                    logger.debug("Resp rec'd")
-                elif np.array_equal(response[:2], [0, 0]):
-                    logger.debug("Debug msg: %s", bytes(response[2:]).decode())
-                else:
-                    logger.warning(
-                        "Resp invalid, expected %s, got %s",
-                        expected_response,
-                        response,
-                    )
-            if time.time() > timeout_time:
-                logger.warning("Timeout")
-                break
+        check_response(ser, cmd, timeout_after=timeout_after)
 
     def clear_all(self):
         logger.debug("Method clear_all.")
         cmd = COMMAND_LC
+        if self._serial_workers_active():
+            for worker in self.serial_workers:
+                worker.enqueue(cmd)
+            return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
@@ -367,16 +609,20 @@ class Display1593:
         assert len(rgb) == 3
         if i < self.led_idx[1]:
             led_id = i
-            ser = self._connections[0]
+            board_index = 0
         elif i < self.led_idx[2]:
             led_id = i - self.led_idx[1]
-            ser = self._connections[1]
+            board_index = 1
         else:
             raise ValueError("invalid led id")
         # Command L1 - implemented
         cmd = np.array(
             (76, 49, led_id // 256 % 256, led_id % 256, *rgb), dtype=np.uint8
         )
+        if self._serial_workers_active():
+            self._submit_board_commands(board_index, [cmd])
+            return
+        ser = self._connections[board_index]
         send_data_to_arduino(ser, cmd)
         self.check_response(ser, cmd)
 
@@ -389,6 +635,23 @@ class Display1593:
         )
         board_leds = [board_leds_0, board_leds_1]
         rgb_arrays = [rgb_arrays_0, rgb_arrays_1]
+        if self._serial_workers_active():
+            for board_index, (leds, rgb_array) in enumerate(
+                zip(board_leds, rgb_arrays)
+            ):
+                n = leds.shape[0]
+                if n == 0:
+                    continue
+                idx = make_idx_array(leds)
+                cmd = np.concatenate(
+                    [
+                        (76, 78, n // 256 % 256, n % 256),
+                        np.hstack((idx, rgb_array)).flatten(),
+                    ]
+                ).astype(np.uint8)
+                self._submit_board_commands(board_index, [cmd])
+            return
+
         cmds_sent = {}
         for leds, rgb_array, ser in zip(
             board_leds, rgb_arrays, self._connections
@@ -417,6 +680,18 @@ class Display1593:
         )
         board_leds_0, board_leds_1 = _board_leds(leds, self.led_idx)
         board_leds = [board_leds_0, board_leds_1]
+        if self._serial_workers_active():
+            for board_index, leds in enumerate(board_leds):
+                n = leds.shape[0]
+                if n == 0:
+                    continue
+                idx = make_idx_array(leds)
+                cmd = np.concatenate(
+                    [(67, 78, n // 256 % 256, n % 256, *rgb), idx.flatten()]
+                ).astype(np.uint8)
+                self._submit_board_commands(board_index, [cmd])
+            return
+
         cmds_sent = {}
         for leds, ser in zip(board_leds, self._connections):
             n = leds.shape[0]
@@ -435,6 +710,14 @@ class Display1593:
     def set_all_leds(self, rgb_array):
         logger.debug("Method set_all_leds.")
         assert rgb_array.shape == (self.n_leds, 3)
+        if self._serial_workers_active():
+            for board_index, (i, j) in enumerate(pairwise(self.led_idx)):
+                cmd = np.concatenate(
+                    [(76, 65), rgb_array[i:j].flatten()]
+                ).astype(np.uint8)
+                self._submit_board_commands(board_index, [cmd])
+            return
+
         cmds_sent = {}
         for (i, j), ser in zip(pairwise(self.led_idx), self._connections):
             # Command LA - implemented
@@ -451,6 +734,10 @@ class Display1593:
         assert len(rgb) == 3
         # Command CA - implemented
         cmd = np.array((67, 65, *rgb), dtype=np.uint8)
+        if self._serial_workers_active():
+            for worker in self.serial_workers:
+                worker.enqueue(cmd)
+            return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
         for ser in self._connections:
@@ -472,15 +759,14 @@ class Display1593:
 
     def show_now(self):
         logger.debug("Method show_now.")
-        # Command SN - implemented
-        # TODO: In future this will be synchronized by comms between boards
-        cmd = COMMAND_SN
-        for ser in self._connections:
-            send_data_to_arduino(ser, cmd)
-        for ser in self._connections:
-            self.check_response(ser, cmd)
+        # Command SN - implemented.
+        # This is the host-side frame boundary: everything queued before this
+        # call is the current frame; everything queued after it belongs to the
+        # next refresh cycle.
+        self.commit_frame()
 
     def disconnect(self):
+        self.stop_serial_workers()
         while len(self._connections) > 0:
             ser = self._connections.pop()
             ser.close()

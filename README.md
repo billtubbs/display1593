@@ -45,9 +45,12 @@ with Display1593() as dis:
 - `show_digclock.py` - displays a digital clock on the LED display
 - `show_image.py` - displays a single image file on the LED display
 - `schelling.py` - runs a Schelling segregation simulation on the display
-- `comm_led_test.py` - low-level communication and LED testing helper
-- `frame_display_speed_test.py` - timing and performance checks for display updates
-- `led_command_tests.py` - tests for the display command protocol
+- `fireplace/` - plays back precomputed fire animation frames
+- `fluidsim/` - buoyancy-driven fluid flow simulation on the display
+- `diagnostics/` - hardware, protocol and timing test scripts (run from
+  the repo root), e.g. `async_display_smoke_test.py`,
+  `serial_worker_timing.py`, `comm_led_test.py`,
+  `frame_display_speed_test.py`, `led_command_tests.py`
 
 ## Running digclock as a systemd service
 
