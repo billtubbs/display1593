@@ -70,9 +70,9 @@ BCYCLE = {
     6: 8,
     7: 5,
     8: 3,
-    9: 1,
-    10: 1,
-    11: 1,
+    9: 2,
+    10: 2,
+    11: 2,
     12: 2,
     13: 2,
     14: 3,
@@ -197,6 +197,12 @@ def main():
                 m = (m + 1) % 60
                 if m == 0:
                     hr = (hr + 1) % 24
+                    # Update brightness before any digit is repainted, so
+                    # the minute digits (repainted below) also get the new
+                    # hour's brightness rather than keeping the old one
+                    # until they next change.
+                    bness = BCYCLE[hr % 24]
+                    flash_idx, flash_vals = face.flash_leds(bness)
 
                 d1 = m % 10
                 clear_digit(smem, face.clear_indices(3))
@@ -208,7 +214,6 @@ def main():
                     paint(smem, *face.digit_leds(2, d2, bness))
 
                 if m == 0:
-                    bness = BCYCLE[hr % 24]
                     d4, d3 = hour_digits(hr)
 
                     clear_digit(smem, face.clear_indices(1))
@@ -216,8 +221,6 @@ def main():
 
                     clear_digit(smem, face.clear_indices(0))
                     paint(smem, *face.digit_leds(0, d4, bness))
-
-                    flash_idx, flash_vals = face.flash_leds(bness)
 
                 # Stage the new digits now, ahead of the tick that will
                 # make them current.
