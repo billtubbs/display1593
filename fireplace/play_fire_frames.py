@@ -90,6 +90,13 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
+        "--fps",
+        type=float,
+        default=FPS,
+        help="frame rate (default %(default)s; the original video is 2x "
+        "that)",
+    )
+    parser.add_argument(
         "--sync",
         action="store_true",
         help="use synchronous mode instead of the pipeline",
@@ -100,4 +107,4 @@ if __name__ == "__main__":
     logger.info("Started: %s", vars(args))
     frames = load_led_frames(DATA_DIR)
     with Display1593(pipelined=not args.sync) as dis:
-        main(dis, frames, FPS)
+        main(dis, frames, args.fps)
