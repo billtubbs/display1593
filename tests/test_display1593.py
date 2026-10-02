@@ -482,6 +482,21 @@ def test_pipelined_flush_shows_last_frame_at_t(monkeypatch, boards):
         display.stop_pipeline()
 
 
+def test_pipelined_show_records_spare_time(monkeypatch, boards):
+    display = _pipelined_display(monkeypatch, boards)
+    try:
+        display.set_all_leds_one_colour((1, 0, 0))
+        display.show()
+        display.show(time.monotonic() + 0.05)  # shows frame 1
+        display.flush()
+
+        # One entry (the show with a t); the frame was sent well before t.
+        assert len(display.show_slack) == 1
+        assert 0.03 < display.show_slack[0] <= 0.05
+    finally:
+        display.stop_pipeline()
+
+
 def test_pipelined_warns_if_a_board_is_not_ready_by_show_time(
     monkeypatch, caplog
 ):
@@ -598,6 +613,18 @@ def test_show_sync_waits_until_t(monkeypatch):
     assert [cmd for _, cmd in sent] == [b"SN", b"SN"]
     assert sent[0][0] >= t
     assert sent[0][0] - t < 0.005
+
+
+def test_show_sync_records_spare_time(monkeypatch):
+    display, sent = _sync_display(monkeypatch)
+
+    display.show()  # no t: nothing recorded
+    display.show(time.monotonic() + 0.03)
+    display.show(time.monotonic() - 0.01)  # late
+
+    assert len(display.show_slack) == 2
+    assert 0.02 < display.show_slack[0] <= 0.03
+    assert display.show_slack[1] < 0
 
 
 def test_show_sync_warns_and_shows_immediately_if_t_passed(

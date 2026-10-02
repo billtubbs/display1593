@@ -57,6 +57,7 @@ def main(dis, frames, fps):
     logging.getLogger("display1593").addHandler(counter)
 
     dis.clear_all()
+    dis.show_slack.clear()
     n_shown = 0
     start_time = time.monotonic()
     t_show = start_time + 0.1
@@ -80,6 +81,18 @@ def main(dis, frames, fps):
         f"({n_shown / elapsed:.1f} fps, target {fps:g}); "
         f"{counter.count} late-frame warnings (see {LOG_PATH.name})"
     )
+    # Spare time per frame (negative = late): pipelined mode, between
+    # both boards having received the frame and its show time; synchronous
+    # mode, between the show(t) call and t. The first frame is left out:
+    # its spare time includes the start-up delay.
+    if len(dis.show_slack) > 1:
+        slack_ms = 1000 * np.array(dis.show_slack)[1:]
+        summary += (
+            f"\nSpare time per frame over the last {len(slack_ms)} "
+            f"frames: mean {slack_ms.mean():.1f} ms, "
+            f"shortest {slack_ms.min():.1f} ms "
+            f"(of {1000 * period:.1f} ms per frame)"
+        )
     print(summary)
     logger.info(summary)
 

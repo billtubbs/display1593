@@ -97,6 +97,9 @@ Key pieces `display1593.py` relies on:
     `show()` blocks only when `max_frames_ahead` markers are pending;
     worker errors (e.g. `response_timeout`) are raised at the next
     `show()`/`flush()` - there's no silent fallback to synchronous mode.
+    In both modes `dis.show_slack` records the spare time before each
+    `show(t)`'s `t` (negative = late): pipelined, from both boards having
+    received the frame; synchronous, from the `show(t)` call.
     **No entry-point script uses pipelined mode yet** - only
     `diagnostics/serial_worker_timing.py` does. README.md documents the
     user-facing behaviour, with a timeline.
@@ -178,7 +181,9 @@ per frame in `fireplace/data/`) in a loop at `FPS` = 24 (`--fps`;
 deliberately slower than the original video's 32 fps - it looks better),
 scheduling each frame with `show(t)` - in pipelined mode by default
 (`--sync` for synchronous). Late frames are logged to
-`fireplace/play_fire_frames.log`, with a summary printed on Ctrl+C.
+`fireplace/play_fire_frames.log`, with a summary printed on Ctrl+C,
+including the mean and shortest spare time per frame from
+`dis.show_slack`.
 `test_fire_frames.py` is an older experiment that cycles a few fire images
 from `images/` (currently missing from the repo, so it won't run as-is).
 Kept here rather than in `diagnostics/` so `fireplace/` stays

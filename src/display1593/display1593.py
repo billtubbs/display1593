@@ -108,6 +108,9 @@ SERIAL_PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"]
 # LED setup
 NUMBER_OF_LEDS = {"TEENSY1": 798, "TEENSY2": 795}
 
+# Number of recent show(t) spare times kept in Display1593.show_slack.
+SHOW_SLACK_MAXLEN = 100_000
+
 
 @jit(
     [types.uint8[:, :](types.int32[:]), types.uint8[:, :](types.int64[:])],
@@ -281,12 +284,14 @@ class ShowMarker:
     queued ahead of it (the frame to be shown), and waits until every
     other board's worker has reached it too, so both halves of the display
     update together. The workers record when they arrived, so a late frame
-    can be blamed on the board(s) that weren't ready.
+    can be blamed on the board(s) that weren't ready, and the spare time
+    (t minus the last arrival) is appended to slack_log if given.
     """
 
-    def __init__(self, t, workers):
+    def __init__(self, t, workers, slack_log=None):
         self.t = t
         self.workers = workers
+        self.slack_log = slack_log
         n = len(workers)
         self.ready_at = [None] * n
         self.ready = [threading.Event() for _ in range(n)]
@@ -432,9 +437,12 @@ class BoardSerialWorker(threading.Thread):
         self._send(COMMAND_SN)
         marker.sent[i].set()
 
-        # Report a late frame once (from the first board's worker).
+        # Record the spare time, and report a late frame, once (from the
+        # first board's worker).
         if i == 0 and marker.t is not None:
             late = max(marker.ready_at) - marker.t
+            if marker.slack_log is not None:
+                marker.slack_log.append(-late)
             if late > 0:
                 slow = [
                     w.name
@@ -575,6 +583,11 @@ class Display1593:
         self.n_leds = self.led_idx[-1]
         self._connections = []
         self.serial_workers = []
+        # Spare time (s) before each show(t) time t, newest last; negative
+        # means the frame was late. Pipelined mode: from both boards having
+        # received the frame to t. Synchronous mode: from the show(t) call
+        # to t.
+        self.show_slack = deque(maxlen=SHOW_SLACK_MAXLEN)
         self._reset_pipeline_state()
         self.nearest_neighbours = np.asarray(
             nearest_neighbours, dtype=np.uint16
@@ -755,7 +768,7 @@ class Display1593:
             time.sleep(0.0005)
 
     def _queue_show_marker(self, t):
-        marker = ShowMarker(t, self.serial_workers)
+        marker = ShowMarker(t, self.serial_workers, self.show_slack)
         for worker in self.serial_workers:
             worker.enqueue_marker(marker)
         self._markers.append(marker)
@@ -998,6 +1011,7 @@ class Display1593:
             self._show_pipelined(t)
             return
         if t is not None:
+            self.show_slack.append(t - time.monotonic())
             _wait_until(t)
         # Command SN - implemented.
         # TODO: Send SN to TEENSY1 only and have it trigger TEENSY2's
