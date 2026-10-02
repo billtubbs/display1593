@@ -36,6 +36,7 @@ class DummySerial:
         self.in_waiting = 0
         self.closed = False
         self._buffer = bytearray()
+        self.replies = []  # mock board replies (see timed_send)
 
     def write(self, data):
         self._buffer.extend(data)
@@ -85,7 +86,10 @@ def _run_instrumented_worker_benchmark(
     def timed_send(ser, cmd):
         t0 = time.perf_counter_ns()
         if mock_mode:
+            # Pretend to send, and queue the reply a real board would give.
             time.sleep(0.0005)
+            ser.replies.append(disp_mod.calc_expected_response(cmd))
+            ser.in_waiting = len(ser.replies)
         else:
             original_send(ser, cmd)
         elapsed = time.perf_counter_ns() - t0
@@ -103,7 +107,11 @@ def _run_instrumented_worker_benchmark(
             response_times.append(elapsed)
 
     def logged_receive(ser):
-        response = original_receive(ser)
+        if mock_mode:
+            response = ser.replies.pop(0)
+            ser.in_waiting = len(ser.replies)
+        else:
+            response = original_receive(ser)
         if debug_responses:
             print(
                 f"RAW RESPONSE: {np.asarray(response, dtype=np.uint8).tolist()} "
@@ -215,7 +223,7 @@ def _run_mock_display(n_leds, repeats, batch_size, debug_responses=False):
         DummySerial("dummy-ttyACM0"),
         DummySerial("dummy-ttyACM1"),
     ]
-    display.start_serial_workers()
+    display.start_pipeline()
     try:
         return _run_instrumented_worker_benchmark(
             display,
@@ -226,7 +234,7 @@ def _run_mock_display(n_leds, repeats, batch_size, debug_responses=False):
             debug_responses=debug_responses,
         )
     finally:
-        display.stop_serial_workers()
+        display.stop_pipeline()
         for ser in display._connections:
             ser.close()
 
@@ -235,44 +243,32 @@ def run_benchmark(
     n_leds, repeats, batch_size, mock_mode, debug_responses=False
 ):
     """Run the benchmark and print a compact report."""
-    display = None
-    try:
-        if mock_mode:
-            display = Display1593()
-            max_leds = display.n_leds
-            n_leds = min(n_leds, max_leds)
-            results = _run_mock_display(
-                n_leds, repeats, batch_size, debug_responses=debug_responses
+    if mock_mode:
+        display = Display1593()
+        max_leds = display.n_leds
+        n_leds = min(n_leds, max_leds)
+        results = _run_mock_display(
+            n_leds, repeats, batch_size, debug_responses=debug_responses
+        )
+    else:
+        display = Display1593()
+        max_leds = display.n_leds
+        n_leds = min(n_leds, max_leds)
+        display.connect()
+        display.start_pipeline()
+        try:
+            results = _run_instrumented_worker_benchmark(
+                display,
+                n_leds=n_leds,
+                repeats=repeats,
+                batch_size=batch_size,
+                mock_mode=False,
+                debug_responses=debug_responses,
             )
-        else:
-            display = Display1593()
-            max_leds = display.n_leds
-            n_leds = min(n_leds, max_leds)
-            display.connect()
-            display.start_serial_workers()
-            try:
-                results = _run_instrumented_worker_benchmark(
-                    display,
-                    n_leds=n_leds,
-                    repeats=repeats,
-                    batch_size=batch_size,
-                    mock_mode=False,
-                    debug_responses=debug_responses,
-                )
-            finally:
-                try:
-                    display.clear_all()
-                    display.show()
-                finally:
-                    display.stop_serial_workers()
-                    display.disconnect()
-    finally:
-        if display is not None and not mock_mode:
-            try:
-                display.clear_all()
-                display.show()
-            except Exception:
-                pass
+        finally:
+            # disconnect() flushes the pipeline, so the clear is shown.
+            display.clear_all()
+            display.disconnect()
 
     print("Serial worker timing benchmark")
     print("=" * 72)

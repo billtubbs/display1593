@@ -78,19 +78,28 @@ Key pieces `display1593.py` relies on:
   `t`, a `time.monotonic()` value) waits until `t` first, logging a
   warning if `t` has already passed. `connect()` drains stale bytes from
   each port's input buffer before reading the board's hello message.
-  - **Sync vs. async serial.** By default every command is sent and its
-    checksummed response checked before returning. Calling
-    `start_serial_workers()` switches to an optional async pipeline: one
-    `BoardSerialWorker` thread per board, fed by a queue, that keeps up to
-    `max_inflight` commands outstanding and validates responses in FIFO
-    order, with a `response_timeout` that stops the worker (recording
-    `last_error`) instead of blocking forever. While workers are running,
-    `set_leds()`/`clear_all()`/`show()` etc. just enqueue and return
-    immediately. **No entry-point script currently enables the workers**
-    - only `diagnostics/serial_worker_timing.py` does - so the clock,
-    fireplace, fluidsim etc. all run on the synchronous path. If a worker
-    dies (timeout), the driver falls back to the synchronous path
-    silently; errors are only logged, not raised to the caller.
+  - **Synchronous vs. pipelined mode.** By default every command is sent
+    and its checksummed response checked before returning, and `show()`
+    displays the values just set. `Display1593(pipelined=True)` (or
+    `start_pipeline()` after connecting) switches to pipelined mode, where
+    **`show()` displays the frame set before the *previous* `show()`
+    call** - the first frame appears at the second call, and `flush(t)`
+    shows the last one (`disconnect()` flushes too). In this mode:
+    `set_*()`/`clear_all()` stage commands on the Pi (`_pending`) until
+    the next `show(t)`, which queues a `ShowMarker` for `t` on each
+    board's `BoardSerialWorker` thread, then releases the staged frame
+    behind it. Each worker sends commands in order (up to `max_inflight`
+    unacknowledged); at a marker it waits until every board's worker has
+    reached it (i.e. sent the frame), then until `t`, then sends `SN` -
+    so both halves update together, and frame *k+1*'s data can't
+    overwrite frame *k* on the boards before it's shown. Late frames
+    (board not ready by `t`) and late `show(t)` calls are logged;
+    `show()` blocks only when `max_frames_ahead` markers are pending;
+    worker errors (e.g. `response_timeout`) are raised at the next
+    `show()`/`flush()` - there's no silent fallback to synchronous mode.
+    **No entry-point script uses pipelined mode yet** - only
+    `diagnostics/serial_worker_timing.py` does. README.md documents the
+    user-facing behaviour, with a timeline.
 - **`lock.py`** - `DisplayLock`, a `flock()`-based, wait-then-timeout,
   cross-process exclusive lock (`/tmp/display1593.lock` by default) so two
   scripts can't drive the serial connections at once; `Display1593.connect()`
@@ -149,8 +158,8 @@ the repo root (log files are written to the current directory).
   LED white, its neighbours red, step through with keypresses).
 - **`async_display_smoke_test.py`** - minimal "does the Pi talk to both
   boards" check: lights a few LEDs across both boards, then clears them.
-- **`serial_worker_timing.py`** - per-phase timing of the async serial
-  worker pipeline (command generation, queueing, send, response wait,
+- **`serial_worker_timing.py`** - per-phase timing of the pipelined-mode
+  serial workers (command generation, queueing, send, response wait,
   `show()`); `--mock` runs it without hardware.
 - **`comm_led_test.py`, `led_command_tests.py`,
   `frame_display_speed_test.py`** - older low-level protocol/timing tests

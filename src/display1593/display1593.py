@@ -263,6 +263,37 @@ def classify_response(response):
     return "unknown"
 
 
+class PeerWorkerStopped(RuntimeError):
+    """A board's serial worker stopped because another board's worker did
+    (that worker's own error is the root cause)."""
+
+
+class ShowMarker:
+    """Worker queue item: send SN to every board at time t (a
+    time.monotonic() value), or as soon as possible if t is None.
+
+    Each board's worker stops at the marker once it has sent everything
+    queued ahead of it (the frame to be shown), and waits until every
+    other board's worker has reached it too, so both halves of the display
+    update together. The workers record when they arrived, so a late frame
+    can be blamed on the board(s) that weren't ready.
+    """
+
+    def __init__(self, t, workers):
+        self.t = t
+        self.workers = workers
+        n = len(workers)
+        self.ready_at = [None] * n
+        self.ready = [threading.Event() for _ in range(n)]
+        self.sent = [threading.Event() for _ in range(n)]
+
+    def all_ready(self):
+        return all(e.is_set() for e in self.ready)
+
+    def done(self):
+        return all(e.is_set() for e in self.sent)
+
+
 class BoardSerialWorker(threading.Thread):
     """Keep one board's serial traffic ordered while allowing a small
     in-flight window for command pipelining.
@@ -273,29 +304,48 @@ class BoardSerialWorker(threading.Thread):
     ordering strict while avoiding the fully serial "send then wait for the
     matching response before sending another" behaviour.
 
+    A ShowMarker in the queue holds everything behind it until the show
+    command has been sent (see ShowMarker).
+
     A response timeout protects against deadlocks where the board stops
     producing replies and the host would otherwise block forever waiting for the
-    next byte-to-byte frame.
+    next byte-to-byte frame. Any error stops the worker and is stored in
+    ``last_error`` for the main thread to raise.
     """
 
     def __init__(
-        self, ser, queue_size=0, max_inflight=5, response_timeout=2.0
+        self,
+        ser,
+        queue_size=0,
+        max_inflight=5,
+        response_timeout=2.0,
+        index=0,
+        name=None,
     ):
-        super().__init__(daemon=True)
+        super().__init__(daemon=True, name=name)
         self.ser = ser
         self.queue = Queue(maxsize=queue_size)
         self.max_inflight = max_inflight
         self.response_timeout = response_timeout
+        self.index = index
         self._stop_event = threading.Event()
+        self._inflight = deque()
         self.last_error = None
 
     def enqueue(self, cmd):
         cmd = np.asarray(cmd, dtype=np.uint8).copy()
         self.queue.put(cmd)
 
+    def enqueue_marker(self, marker):
+        self.queue.put(marker)
+
     def shutdown(self):
         self._stop_event.set()
         self.queue.put(None)
+
+    def is_idle(self):
+        """True once everything queued has been sent and acknowledged."""
+        return self.queue.unfinished_tasks == 0 and not self._inflight
 
     def _validate_response(self, response, expected_response):
         kind = classify_response(response)
@@ -319,50 +369,112 @@ class BoardSerialWorker(threading.Thread):
         )
         return False
 
-    def run(self):
-        inflight = deque()
+    def _send(self, cmd):
+        send_data_to_arduino(self.ser, cmd)
+        self._inflight.append(
+            (cmd, calc_expected_response(cmd), time.monotonic())
+        )
 
+    def _service_responses(self):
+        """Read and validate one response if available. Returns True if
+        one was read; raises TimeoutError if the oldest outstanding
+        command has waited longer than response_timeout."""
+        if not self._inflight:
+            return False
+        if getattr(self.ser, "in_waiting", 0) > 0:
+            response = receive_data_from_arduino(self.ser)
+            _, expected_response, _ = self._inflight.popleft()
+            self._validate_response(response, expected_response)
+            return True
+        oldest_cmd, _, sent_at = self._inflight[0]
+        if time.monotonic() - sent_at > self.response_timeout:
+            raise TimeoutError(
+                f"{self.name}: timed out waiting for response to command "
+                f"{oldest_cmd!r} after {self.response_timeout:.2f}s"
+            )
+        return False
+
+    def _show_at_marker(self, marker):
+        i = self.index
+        marker.ready_at[i] = time.monotonic()
+        marker.ready[i].set()
+
+        # Wait for the other board(s) to finish sending this frame.
+        while not marker.all_ready():
+            if not all(w.is_alive() for w in marker.workers):
+                raise PeerWorkerStopped(
+                    f"{self.name}: another board's serial worker stopped "
+                    "while waiting to show a frame"
+                )
+            if not self._service_responses():
+                time.sleep(0.0005)
+
+        # Wait for the show time. Sleep in short steps (still reading
+        # responses) until just before t, then yield-spin: time.sleep(0)
+        # releases the GIL so the other worker can wake on time too.
+        if marker.t is not None:
+            while (remaining := marker.t - time.monotonic()) > 0.002:
+                if not self._service_responses():
+                    time.sleep(min(remaining - 0.002, 0.0005))
+            while time.monotonic() < marker.t:
+                time.sleep(0)
+
+        # TODO: Send SN to TEENSY1 only and have it trigger TEENSY2's
+        # leds.show() over the GPIO sync wire between the two boards, so
+        # both halves update at exactly the same moment. Both workers
+        # would still wait at the marker above (TEENSY2's data must be
+        # sent before the shared show), but only one would send SN.
+        self._send(COMMAND_SN)
+        marker.sent[i].set()
+
+        # Report a late frame once (from the first board's worker).
+        if i == 0 and marker.t is not None:
+            late = max(marker.ready_at) - marker.t
+            if late > 0:
+                slow = [
+                    w.name
+                    for w, r in zip(marker.workers, marker.ready_at)
+                    if r > marker.t
+                ]
+                logger.warning(
+                    "Frame shown %.1f ms late: %s not ready by show time.",
+                    late * 1000,
+                    ", ".join(slow),
+                )
+
+    def run(self):
+        try:
+            self._run()
+        except Exception as err:
+            self.last_error = err
+            logger.warning("%s stopped: %s", self.name, err)
+            self._stop_event.set()
+
+    def _run(self):
         while True:
-            while len(inflight) < self.max_inflight:
+            while len(self._inflight) < self.max_inflight:
                 try:
-                    cmd = self.queue.get_nowait()
+                    item = self.queue.get_nowait()
                 except Empty:
                     break
-                if cmd is None:
+                if item is None:
                     self.queue.task_done()
                     self._stop_event.set()
                     break
-                send_data_to_arduino(self.ser, cmd)
-                inflight.append(
-                    (cmd, calc_expected_response(cmd), time.monotonic())
-                )
+                if isinstance(item, ShowMarker):
+                    self._show_at_marker(item)
+                else:
+                    self._send(item)
                 self.queue.task_done()
 
-            if not inflight:
+            if not self._inflight:
                 if self._stop_event.is_set() and self.queue.empty():
                     break
                 time.sleep(0.0005)
                 continue
 
-            in_waiting = getattr(self.ser, "in_waiting", 0)
-            if in_waiting > 0:
-                response = receive_data_from_arduino(self.ser)
-                cmd, expected_response, _ = inflight.popleft()
-                self._validate_response(response, expected_response)
+            if self._service_responses():
                 continue
-
-            oldest_cmd, oldest_expected, sent_at = inflight[0]
-            if time.monotonic() - sent_at > self.response_timeout:
-                self.last_error = TimeoutError(
-                    "Timed out waiting for response to command "
-                    f"{oldest_cmd!r} after {self.response_timeout:.2f}s"
-                )
-                logger.warning(
-                    "BoardSerialWorker timed out waiting for response to %s",
-                    oldest_cmd,
-                )
-                self._stop_event.set()
-                break
 
             if self._stop_event.is_set() and self.queue.empty():
                 break
@@ -373,15 +485,17 @@ class BoardSerialWorker(threading.Thread):
 def _wait_until(t, spin=0.002):
     """Wait until time.monotonic() reaches t, logging a warning if late.
 
-    Sleeps until shortly before t, then busy-waits the last `spin` seconds,
-    since time.sleep() alone can overshoot by a millisecond or more.
+    Sleeps for half the remaining time, repeatedly, until shortly before
+    t, then busy-waits the last `spin` seconds. A single long sleep can
+    overshoot by several milliseconds (seen on macOS); shorter sleeps
+    near t keep any overshoot small.
     """
     late = time.monotonic() - t
     if late > 0:
         logger.warning("Show time missed by %.1f ms.", late * 1000)
         return
     while (remaining := t - time.monotonic()) > spin:
-        time.sleep(remaining - spin)
+        time.sleep(max((remaining - spin) / 2, 0.0005))
     while time.monotonic() < t:
         pass
 
@@ -419,11 +533,25 @@ class Display1593:
         baud_rate=BAUD_RATE,
         number_of_leds=NUMBER_OF_LEDS,
         lock_path=None,
+        pipelined=False,
+        max_frames_ahead=2,
         max_inflight=5,
         response_timeout=2.0,
     ):
+        """
+        pipelined: if True, connect() starts the pipeline (see
+            start_pipeline()). Otherwise every call is synchronous.
+        max_frames_ahead: in pipelined mode, how many show() calls may
+            be scheduled but not yet carried out before show() blocks.
+        max_inflight: in pipelined mode, how many commands each board
+            may have sent but not yet acknowledged.
+        response_timeout: in pipelined mode, how long to wait for a
+            board's acknowledgement before stopping with an error.
+        """
         self.ports = ports
         self.baud_rate = baud_rate
+        self._pipelined_on_connect = pipelined
+        self.max_frames_ahead = max_frames_ahead
         self.max_inflight = max_inflight
         self.response_timeout = response_timeout
         self._lock = (
@@ -442,6 +570,7 @@ class Display1593:
         self.n_leds = self.led_idx[-1]
         self._connections = []
         self.serial_workers = []
+        self._reset_pipeline_state()
         self.nearest_neighbours = np.asarray(
             nearest_neighbours, dtype=np.uint16
         )
@@ -528,60 +657,150 @@ class Display1593:
             for name in self.board_names:
                 self._connections.append(connections[name])
 
-            # Leave serial workers stopped until explicitly started; this keeps
-            # the existing synchronous API behaviour unchanged while enabling
-            # an optional async pipeline when needed.
             self.serial_workers = []
+            if self._pipelined_on_connect:
+                self.start_pipeline()
         except Exception:
             self._lock.release()
             raise
 
-    def start_serial_workers(self, max_inflight=None, response_timeout=None):
+    @property
+    def pipelined(self):
+        """True while the pipeline is running (see start_pipeline())."""
+        return bool(self.serial_workers)
+
+    def _reset_pipeline_state(self):
+        # Commands staged since the last show(), per board, not yet
+        # released to the workers.
+        self._pending = [[] for _ in self.board_names]
+        # True once a frame has been released but not yet shown.
+        self._unshown = False
+        # ShowMarkers queued but not yet carried out by every worker.
+        self._markers = deque()
+
+    def start_pipeline(self, max_inflight=None, response_timeout=None):
+        """Switch to pipelined mode: one background thread per board sends
+        commands, so building the next frame overlaps with sending the
+        current one.
+
+        In pipelined mode the set_*()/clear_all() methods return at once,
+        and each show() call shows the frame set *before the previous*
+        show() call, then starts sending the frame just set. The first
+        frame therefore appears at the second show() call; call flush()
+        at the end to show the last one. See README.md.
+        """
         if max_inflight is None:
             max_inflight = self.max_inflight
         if response_timeout is None:
             response_timeout = self.response_timeout
 
-        self.stop_serial_workers()
+        self.stop_pipeline()
         self.serial_workers = [
             BoardSerialWorker(
                 ser,
                 max_inflight=max_inflight,
                 response_timeout=response_timeout,
+                index=i,
+                name=name,
             )
-            for ser in self._connections
+            for i, (ser, name) in enumerate(
+                zip(self._connections, self.board_names)
+            )
         ]
         for worker in self.serial_workers:
             worker.start()
-        return self.serial_workers
 
-    def submit_serial_command(self, board_index, cmd):
-        if not 0 <= board_index < len(self.serial_workers):
-            raise IndexError("board_index out of range")
-        self.serial_workers[board_index].enqueue(cmd)
-
-    def _submit_board_commands(self, board_index, cmds):
-        if not isinstance(cmds, (list, tuple)):
-            cmds = [cmds]
-        for cmd in cmds:
-            self.submit_serial_command(board_index, cmd)
-
-    def _queue_refresh(self):
-        for worker in self.serial_workers:
-            worker.enqueue(COMMAND_SN)
-
-    def stop_serial_workers(self):
+    def stop_pipeline(self):
+        """Stop the pipeline and return to synchronous mode. Anything
+        already released by show() is still sent first; anything set since
+        the last show() is discarded (call flush() first to show it)."""
         for worker in self.serial_workers:
             if worker.is_alive():
                 worker.shutdown()
         for worker in self.serial_workers:
             if worker.is_alive():
                 worker.join(timeout=1)
+        self.serial_workers = []
+        self._reset_pipeline_state()
 
-    def _serial_workers_active(self):
-        return bool(self.serial_workers) and all(
-            worker.is_alive() for worker in self.serial_workers
+    def _stage(self, board_index, cmd):
+        self._pending[board_index].append(cmd)
+
+    def _stage_all_boards(self, cmd):
+        for board_index in range(len(self.board_names)):
+            self._stage(board_index, cmd)
+
+    def _raise_worker_errors(self):
+        errors = [w.last_error for w in self.serial_workers if w.last_error]
+        # Raise a root cause (e.g. a board that stopped replying) in
+        # preference to the knock-on PeerWorkerStopped it causes.
+        errors.sort(key=lambda err: isinstance(err, PeerWorkerStopped))
+        if errors:
+            raise errors[0]
+        for worker in self.serial_workers:
+            if not worker.is_alive():
+                raise RuntimeError(f"{worker.name}: serial worker stopped")
+
+    def _wait_for(self, condition):
+        """Poll until condition() is true, raising any worker error."""
+        while not condition():
+            self._raise_worker_errors()
+            time.sleep(0.0005)
+
+    def _queue_show_marker(self, t):
+        marker = ShowMarker(t, self.serial_workers)
+        for worker in self.serial_workers:
+            worker.enqueue_marker(marker)
+        self._markers.append(marker)
+
+    def _show_pipelined(self, t):
+        self._raise_worker_errors()
+        if t is not None and (late := time.monotonic() - t) > 0:
+            logger.warning(
+                "show() called %.1f ms after its show time.", late * 1000
+            )
+
+        # Limit how far the script can get ahead of the display.
+        def few_enough_ahead():
+            while self._markers and self._markers[0].done():
+                self._markers.popleft()
+            return len(self._markers) < self.max_frames_ahead
+
+        self._wait_for(few_enough_ahead)
+
+        # Show the frame already released (if any) at t...
+        if self._unshown:
+            self._queue_show_marker(t)
+        # ...then release the frame just set, to be shown next call.
+        for worker, cmds in zip(self.serial_workers, self._pending):
+            for cmd in cmds:
+                worker.queue.put(cmd)
+        self._pending = [[] for _ in self.board_names]
+        self._unshown = True
+
+    def flush(self, t=None):
+        """In pipelined mode, show the last frame and wait until everything
+        queued has been sent and acknowledged. Does nothing in synchronous
+        mode.
+
+        The last frame is shown at t (a time.monotonic() value), or as
+        soon as possible if t is None. If LED values have been set since
+        the last show(), the frame before them is shown at t and they are
+        shown straight after.
+        """
+        if not self.pipelined:
+            return
+        if any(self._pending):
+            self.show(t)
+            t = None
+        if self._unshown:
+            self._raise_worker_errors()
+            self._queue_show_marker(t)
+            self._unshown = False
+        self._wait_for(
+            lambda: all(worker.is_idle() for worker in self.serial_workers)
         )
+        self._markers.clear()
 
     def check_response(self, ser, cmd, timeout_after=1):
         check_response(ser, cmd, timeout_after=timeout_after)
@@ -589,9 +808,8 @@ class Display1593:
     def clear_all(self):
         logger.debug("Method clear_all.")
         cmd = COMMAND_LC
-        if self._serial_workers_active():
-            for worker in self.serial_workers:
-                worker.enqueue(cmd)
+        if self.pipelined:
+            self._stage_all_boards(cmd)
             return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
@@ -615,8 +833,8 @@ class Display1593:
         cmd = np.array(
             (76, 49, led_id // 256 % 256, led_id % 256, *rgb), dtype=np.uint8
         )
-        if self._serial_workers_active():
-            self._submit_board_commands(board_index, [cmd])
+        if self.pipelined:
+            self._stage(board_index, cmd)
             return
         ser = self._connections[board_index]
         send_data_to_arduino(ser, cmd)
@@ -631,7 +849,7 @@ class Display1593:
         )
         board_leds = [board_leds_0, board_leds_1]
         rgb_arrays = [rgb_arrays_0, rgb_arrays_1]
-        if self._serial_workers_active():
+        if self.pipelined:
             for board_index, (leds, rgb_array) in enumerate(
                 zip(board_leds, rgb_arrays)
             ):
@@ -645,7 +863,7 @@ class Display1593:
                         np.hstack((idx, rgb_array)).flatten(),
                     ]
                 ).astype(np.uint8)
-                self._submit_board_commands(board_index, [cmd])
+                self._stage(board_index, cmd)
             return
 
         cmds_sent = {}
@@ -676,7 +894,7 @@ class Display1593:
         )
         board_leds_0, board_leds_1 = _board_leds(leds, self.led_idx)
         board_leds = [board_leds_0, board_leds_1]
-        if self._serial_workers_active():
+        if self.pipelined:
             for board_index, leds in enumerate(board_leds):
                 n = leds.shape[0]
                 if n == 0:
@@ -685,7 +903,7 @@ class Display1593:
                 cmd = np.concatenate(
                     [(67, 78, n // 256 % 256, n % 256, *rgb), idx.flatten()]
                 ).astype(np.uint8)
-                self._submit_board_commands(board_index, [cmd])
+                self._stage(board_index, cmd)
             return
 
         cmds_sent = {}
@@ -706,12 +924,12 @@ class Display1593:
     def set_all_leds(self, rgb_array):
         logger.debug("Method set_all_leds.")
         assert rgb_array.shape == (self.n_leds, 3)
-        if self._serial_workers_active():
+        if self.pipelined:
             for board_index, (i, j) in enumerate(pairwise(self.led_idx)):
                 cmd = np.concatenate(
                     [(76, 65), rgb_array[i:j].flatten()]
                 ).astype(np.uint8)
-                self._submit_board_commands(board_index, [cmd])
+                self._stage(board_index, cmd)
             return
 
         cmds_sent = {}
@@ -730,9 +948,8 @@ class Display1593:
         assert len(rgb) == 3
         # Command CA - implemented
         cmd = np.array((67, 65, *rgb), dtype=np.uint8)
-        if self._serial_workers_active():
-            for worker in self.serial_workers:
-                worker.enqueue(cmd)
+        if self.pipelined:
+            self._stage_all_boards(cmd)
             return
         for ser in self._connections:
             send_data_to_arduino(ser, cmd)
@@ -754,18 +971,27 @@ class Display1593:
         self.set_all_leds(z**2 / (256 * dimness))
 
     def show(self, t=None):
-        """Show the staged LED values on the display, now or at time t.
+        """Show a frame on the display, now or at time t.
 
-        t is a time.monotonic() value. If given, wait until then before
-        sending the show command; if it has already passed, log a warning
-        and show immediately. Blocks until both boards have acknowledged.
+        t is a time.monotonic() value; if it has already passed, a
+        warning is logged and the frame is shown as soon as possible.
+
+        Synchronous mode: shows the LED values just set. Waits until t
+        (if given), then blocks until both boards have acknowledged.
+
+        Pipelined mode: shows the frame set *before the previous* show()
+        call - the one already sent to the boards - at t, and starts
+        sending the frame just set, to be shown by the next call. Returns
+        immediately unless max_frames_ahead show() calls are already
+        waiting to be carried out. Raises any error from the background
+        threads (e.g. a board that stopped replying).
         """
         logger.debug("Method show.")
+        if self.pipelined:
+            self._show_pipelined(t)
+            return
         if t is not None:
             _wait_until(t)
-        if self._serial_workers_active():
-            self._queue_refresh()
-            return
         # Command SN - implemented.
         # TODO: Send SN to TEENSY1 only and have it trigger TEENSY2's
         # leds.show() over the GPIO sync wire between the two boards, so
@@ -776,7 +1002,14 @@ class Display1593:
             self.check_response(ser, COMMAND_SN)
 
     def disconnect(self):
-        self.stop_serial_workers()
+        if self.pipelined:
+            # Show the last frame rather than silently dropping it, but
+            # don't let a failure here stop the connections closing.
+            try:
+                self.flush()
+            except Exception:
+                logger.exception("Error flushing pipeline on disconnect.")
+        self.stop_pipeline()
         while len(self._connections) > 0:
             ser = self._connections.pop()
             ser.close()
