@@ -237,6 +237,11 @@ def main():
         f"{Display1593().max_inflight})",
     )
     parser.add_argument(
+        "--modes",
+        default="sync,pipelined",
+        help="comma-separated modes to test (default %(default)s)",
+    )
+    parser.add_argument(
         "--mock", action="store_true", help="use fake boards, no hardware"
     )
     args = parser.parse_args()
@@ -251,7 +256,8 @@ def main():
     counter = LogCounter()
     logging.getLogger("display1593").addHandler(counter)
 
-    modes = [("sync", False), ("pipelined", True)]
+    all_modes = {"sync": False, "pipelined": True}
+    modes = [(m, all_modes[m]) for m in args.modes.split(",")]
     max_rates = {}
     paced_rows = []
     failures = {}
