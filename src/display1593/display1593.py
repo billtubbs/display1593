@@ -263,6 +263,11 @@ def classify_response(response):
     return "unknown"
 
 
+class SerialWorkerError(RuntimeError):
+    """A board's serial worker failed in pipelined mode (the original
+    error, e.g. a TimeoutError, is chained as __cause__)."""
+
+
 class PeerWorkerStopped(RuntimeError):
     """A board's serial worker stopped because another board's worker did
     (that worker's own error is the root cause)."""
@@ -735,11 +740,13 @@ class Display1593:
         # Raise a root cause (e.g. a board that stopped replying) in
         # preference to the knock-on PeerWorkerStopped it causes.
         errors.sort(key=lambda err: isinstance(err, PeerWorkerStopped))
+        # A new exception each time: re-raising the worker's own exception
+        # object would keep appending to its traceback.
         if errors:
-            raise errors[0]
+            raise SerialWorkerError(str(errors[0])) from errors[0]
         for worker in self.serial_workers:
             if not worker.is_alive():
-                raise RuntimeError(f"{worker.name}: serial worker stopped")
+                raise SerialWorkerError(f"{worker.name}: worker stopped")
 
     def _wait_for(self, condition):
         """Poll until condition() is true, raising any worker error."""
@@ -1003,12 +1010,16 @@ class Display1593:
 
     def disconnect(self):
         if self.pipelined:
-            # Show the last frame rather than silently dropping it, but
-            # don't let a failure here stop the connections closing.
-            try:
-                self.flush()
-            except Exception:
-                logger.exception("Error flushing pipeline on disconnect.")
+            # Show the last frame rather than silently dropping it - unless
+            # a board has already failed - but don't let a failure here
+            # stop the connections closing.
+            if any(w.last_error for w in self.serial_workers):
+                logger.warning("Not flushing on disconnect: a board failed.")
+            else:
+                try:
+                    self.flush()
+                except Exception:
+                    logger.exception("Error flushing pipeline on disconnect.")
         self.stop_pipeline()
         while len(self._connections) > 0:
             ser = self._connections.pop()

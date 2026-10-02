@@ -31,11 +31,16 @@ its numbers say nothing about the real display.
 import argparse
 import logging
 import time
+from pathlib import Path
 
 import numpy as np
 
 import display1593.display1593 as disp_mod
 from display1593 import Display1593
+from display1593.display1593 import SerialWorkerError
+from display1593.logging_utils import configure_root_logging
+
+LOG_PATH = Path("compare_modes.log")  # in the current directory
 
 BRIGHTNESS = 16  # peak per channel, 0-255; kept low to protect the PSU
 # Frames left out of the "blocked" stats: the first few show(t) calls
@@ -169,6 +174,27 @@ def run_paced(dis, n_frames, fps, compute_s):
     return np.array(scheduled), np.array(blocked)
 
 
+def run_paced_row(dis, mode, fps, n_frames, compute_s, recorder, counter):
+    scheduled, blocked = run_paced(dis, n_frames, fps, compute_s)
+    sn = [np.array(v) for v in recorder.times.values()]
+    if len(sn) != 2 or any(len(s) != len(scheduled) for s in sn):
+        print(
+            f"  unexpected SN counts {[len(s) for s in sn]} for "
+            f"{len(scheduled)} frames; skipping"
+        )
+        return None
+    error_ms = 1000 * (np.concatenate(sn) - np.tile(scheduled, 2))
+    skew_ms = 1000 * np.abs(sn[0] - sn[1])
+    return (
+        mode,
+        fps,
+        error_ms,
+        skew_ms,
+        blocked[LEAD_IN:] * 1000,
+        dict(counter.counts),
+    )
+
+
 def stats(a):
     return f"{np.mean(a):6.1f} {np.percentile(a, 95):6.1f} {np.max(a):6.1f}"
 
@@ -203,12 +229,22 @@ def main():
         help="simulated per-frame work in ms (default %(default)s)",
     )
     parser.add_argument(
+        "--max-inflight",
+        type=int,
+        default=None,
+        help="pipelined mode: commands each board may have sent but not "
+        "yet acknowledged (default: the driver's, "
+        f"{Display1593().max_inflight})",
+    )
+    parser.add_argument(
         "--mock", action="store_true", help="use fake boards, no hardware"
     )
     args = parser.parse_args()
     fps_list = [float(f) for f in args.fps.split(",")]
     compute_s = args.compute_ms / 1000
 
+    configure_root_logging(LOG_PATH)
+    logging.getLogger(__name__).info("Started: %s", vars(args))
     if args.mock:
         install_mock()
     recorder = SNRecorder()
@@ -218,44 +254,39 @@ def main():
     modes = [("sync", False), ("pipelined", True)]
     max_rates = {}
     paced_rows = []
+    failures = {}
     with Display1593() as dis:
         for mode, pipelined in modes:
             if pipelined:
-                dis.start_pipeline()
+                dis.start_pipeline(max_inflight=args.max_inflight)
             else:
                 dis.stop_pipeline()
-            print(f"{mode}: max rate ({args.max_rate_frames} frames)...")
-            max_rates[mode] = run_unpaced(
-                dis, args.max_rate_frames, compute_s
-            )
-            for fps in fps_list:
-                n_frames = max(2, int(args.seconds * fps))
-                print(f"{mode}: {fps:g} fps ({n_frames} frames)...")
-                recorder.reset()
-                counter.reset()
-                scheduled, blocked = run_paced(dis, n_frames, fps, compute_s)
-                sn = [np.array(v) for v in recorder.times.values()]
-                if len(sn) != 2 or any(len(s) != len(scheduled) for s in sn):
-                    print(
-                        f"  unexpected SN counts {[len(s) for s in sn]} for "
-                        f"{len(scheduled)} frames; skipping"
-                    )
-                    continue
-                error_ms = 1000 * (np.concatenate(sn) - np.tile(scheduled, 2))
-                skew_ms = 1000 * np.abs(sn[0] - sn[1])
-                paced_rows.append(
-                    (
-                        mode,
-                        fps,
-                        error_ms,
-                        skew_ms,
-                        blocked[LEAD_IN:] * 1000,
-                        dict(counter.counts),
-                    )
+            try:
+                print(f"{mode}: max rate ({args.max_rate_frames} frames)...")
+                max_rates[mode] = run_unpaced(
+                    dis, args.max_rate_frames, compute_s
                 )
+                for fps in fps_list:
+                    n_frames = max(2, int(args.seconds * fps))
+                    print(f"{mode}: {fps:g} fps ({n_frames} frames)...")
+                    recorder.reset()
+                    counter.reset()
+                    row = run_paced_row(
+                        dis, mode, fps, n_frames, compute_s, recorder, counter
+                    )
+                    if row is not None:
+                        paced_rows.append(row)
+            except SerialWorkerError as err:
+                # The serial streams may now be out of step with the
+                # boards, so don't try anything else in this mode.
+                print(f"  FAILED: {err}")
+                failures[mode] = err
         dis.stop_pipeline()
-        dis.clear_all()
-        dis.show()
+        try:
+            dis.clear_all()
+            dis.show()
+        except Exception as err:
+            print(f"Couldn't clear the display: {err}")
 
     print()
     print(
@@ -263,7 +294,9 @@ def main():
         "work per frame:"
     )
     for mode, _ in modes:
-        print(f"  {mode:>9}: {max_rates[mode]:6.1f} frames/s")
+        rate = max_rates.get(mode)
+        result = "failed" if rate is None else f"{rate:6.1f} frames/s"
+        print(f"  {mode:>9}: {result}")
 
     print()
     print("Paced playback (ms; show time error = SN sent minus scheduled t):")
@@ -288,6 +321,9 @@ def main():
         " waiting for t;\nin pipelined mode it's only non-zero when the"
         " script is max_frames_ahead\nframes ahead."
     )
+    for mode, err in failures.items():
+        print(f"\n{mode} mode FAILED: {err}")
+    print(f"\nFull log: {LOG_PATH.resolve()}")
     if counter.other:
         print(f"\nOther warnings logged ({len(counter.other)}), e.g.:")
         for msg in counter.other[:5]:

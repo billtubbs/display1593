@@ -9,6 +9,7 @@ from display1593.data.ledArray_data_1593 import num_cells
 from display1593.display1593 import (
     BoardSerialWorker,
     Display1593,
+    SerialWorkerError,
     calc_expected_response,
 )
 
@@ -539,11 +540,12 @@ def test_pipelined_show_raises_if_a_board_stops_replying(monkeypatch):
     try:
         display.set_all_leds_one_colour((1, 0, 0))
         display.show()
-        with pytest.raises(TimeoutError, match="TEENSY2"):
+        with pytest.raises(SerialWorkerError, match="TEENSY2") as exc_info:
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
                 display.show()
                 time.sleep(0.01)
+        assert isinstance(exc_info.value.__cause__, TimeoutError)
     finally:
         display.stop_pipeline()
 
