@@ -158,6 +158,11 @@ the repo root (log files are written to the current directory).
   LED white, its neighbours red, step through with keypresses).
 - **`async_display_smoke_test.py`** - minimal "does the Pi talk to both
   boards" check: lights a few LEDs across both boards, then clears them.
+- **`compare_modes.py`** - plays the same full-display animation in
+  synchronous and pipelined mode and compares max frame rate (with
+  simulated per-frame work, `--compute-ms`) and, at each `--fps`, show
+  time error vs. schedule, board skew, time blocked in the driver, and
+  late-frame warnings. `--mock` checks the script without hardware.
 - **`serial_worker_timing.py`** - per-phase timing of the pipelined-mode
   serial workers (command generation, queueing, send, response wait,
   `show()`); `--mock` runs it without hardware.

@@ -50,7 +50,7 @@ with Display1593() as dis:
 - `diagnostics/` - hardware, protocol and timing test scripts (run from
   the repo root), e.g. `check_led_neighbours.py`,
   `async_display_smoke_test.py`,
-  `serial_worker_timing.py`, `comm_led_test.py`,
+  `compare_modes.py`, `serial_worker_timing.py`, `comm_led_test.py`,
   `frame_display_speed_test.py`, `led_command_tests.py`
 
 ## Running digclock as a systemd service
