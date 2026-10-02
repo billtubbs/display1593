@@ -174,8 +174,8 @@ the repo root (log files are written to the current directory).
 ### `fireplace/`
 
 `play_fire_frames.py` plays back precomputed per-LED RGB frames (one CSV
-per frame in `fireplace/data/`) in a loop at `FPS` = 16 (half the
-original video's speed, deliberately - it looks better slower),
+per frame in `fireplace/data/`) in a loop at `FPS` = 24 (`--fps`;
+deliberately slower than the original video's 32 fps - it looks better),
 scheduling each frame with `show(t)` - in pipelined mode by default
 (`--sync` for synchronous). Late frames are logged to
 `fireplace/play_fire_frames.log`, with a summary printed on Ctrl+C.

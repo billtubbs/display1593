@@ -1,8 +1,8 @@
 """Play the precomputed fire animation on the display, in a loop.
 
 The animation is a sequence of per-LED RGB frames (one CSV per frame in
-data/), played at FPS (half the speed of the original video, which looks
-better).
+data/), played at FPS (slower than the original video's 32 fps, which
+looks better).
 
 Uses the display's pipelined mode by default (each show(t) displays the
 previous frame at t while the next one is sent), which keeps frame times
@@ -23,7 +23,7 @@ from display1593.logging_utils import configure_root_logging
 
 DATA_DIR = Path(__file__).parent / "data"
 LOG_PATH = Path(__file__).parent / "play_fire_frames.log"
-FPS = 16
+FPS = 24
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +93,7 @@ if __name__ == "__main__":
         "--fps",
         type=float,
         default=FPS,
-        help="frame rate (default %(default)s; the original video is 2x "
-        "that)",
+        help="frame rate (default %(default)s; the original video is 32)",
     )
     parser.add_argument(
         "--sync",
