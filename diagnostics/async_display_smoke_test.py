@@ -17,7 +17,7 @@ def main():
         print("Connected to display")
 
         dis.clear_all()
-        dis.show_now()
+        dis.show()
 
         # A few sample LEDs across the layout, including both boards.
         leds = np.array([0, 1, 10, 100, 500, 700, 1500], dtype=np.int32)
@@ -35,13 +35,13 @@ def main():
         )
 
         dis.set_leds(leds, rgb)
-        dis.show_now()
+        dis.show()
         print("Pattern sent")
 
         time.sleep(2)
 
         dis.clear_all()
-        dis.show_now()
+        dis.show()
         print("Cleared")
 
 

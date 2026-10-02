@@ -37,7 +37,7 @@ from display1593 import Display1593
 with Display1593() as dis:
     dis.clear_all()
     dis.set_led(0, (255, 0, 0))
-    dis.show_now()
+    dis.show()
 ```
 
 ## Current projects in this repository

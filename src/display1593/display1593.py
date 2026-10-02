@@ -370,6 +370,22 @@ class BoardSerialWorker(threading.Thread):
             time.sleep(0.0005)
 
 
+def _wait_until(t, spin=0.002):
+    """Wait until time.monotonic() reaches t, logging a warning if late.
+
+    Sleeps until shortly before t, then busy-waits the last `spin` seconds,
+    since time.sleep() alone can overshoot by a millisecond or more.
+    """
+    late = time.monotonic() - t
+    if late > 0:
+        logger.warning("Show time missed by %.1f ms.", late * 1000)
+        return
+    while (remaining := t - time.monotonic()) > spin:
+        time.sleep(remaining - spin)
+    while time.monotonic() < t:
+        pass
+
+
 def check_response(ser, cmd, timeout_after=1):
     expected_response = calc_expected_response(cmd)
     waiting = True
@@ -554,26 +570,6 @@ class Display1593:
         for worker in self.serial_workers:
             worker.enqueue(COMMAND_SN)
 
-    def submit_frame(self, board_commands):
-        """Queue one frame across boards without committing it yet.
-
-        board_commands should be a mapping of board index to a command or list of
-        commands for that board. The frame is not made visible until
-        show_now() is called, which is the host-side commit boundary.
-        """
-        for board_index, cmds in board_commands.items():
-            self._submit_board_commands(board_index, cmds)
-
-    def commit_frame(self):
-        """Host-side frame commit: instruct each board to show queued updates."""
-        if self._serial_workers_active():
-            self._queue_refresh()
-            return
-        for ser in self._connections:
-            send_data_to_arduino(ser, COMMAND_SN)
-        for ser in self._connections:
-            self.check_response(ser, COMMAND_SN)
-
     def stop_serial_workers(self):
         for worker in self.serial_workers:
             if worker.is_alive():
@@ -757,13 +753,27 @@ class Display1593:
         z = self.convert_image(self.prepare_image(image))
         self.set_all_leds(z**2 / (256 * dimness))
 
-    def show_now(self):
-        logger.debug("Method show_now.")
+    def show(self, t=None):
+        """Show the staged LED values on the display, now or at time t.
+
+        t is a time.monotonic() value. If given, wait until then before
+        sending the show command; if it has already passed, log a warning
+        and show immediately. Blocks until both boards have acknowledged.
+        """
+        logger.debug("Method show.")
+        if t is not None:
+            _wait_until(t)
+        if self._serial_workers_active():
+            self._queue_refresh()
+            return
         # Command SN - implemented.
-        # This is the host-side frame boundary: everything queued before this
-        # call is the current frame; everything queued after it belongs to the
-        # next refresh cycle.
-        self.commit_frame()
+        # TODO: Send SN to TEENSY1 only and have it trigger TEENSY2's
+        # leds.show() over the GPIO sync wire between the two boards, so
+        # both halves update at exactly the same moment.
+        for ser in self._connections:
+            send_data_to_arduino(ser, COMMAND_SN)
+        for ser in self._connections:
+            self.check_response(ser, COMMAND_SN)
 
     def disconnect(self):
         self.stop_serial_workers()

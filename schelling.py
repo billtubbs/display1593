@@ -187,7 +187,7 @@ class Agent:
             np.array([self.id], dtype=np.int32),
             np.array([self.population.background_col], dtype=np.uint8),
         )
-        self.population.display.show_now()
+        self.population.display.show()
 
 
 class Population:
@@ -391,7 +391,7 @@ class Population:
             )
             self.display.set_leds(empty_ids, empty_rgb)
 
-        self.display.show_now()
+        self.display.show()
 
     def debug_led_range(self):
         """Log the LED range the script will target."""
@@ -409,7 +409,7 @@ class Population:
         for agent in self.agents:
             agent.unshow()
 
-        self.display.show_now()
+        self.display.show()
 
 
 def main(n_neighbours=12):

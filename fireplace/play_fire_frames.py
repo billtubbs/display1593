@@ -4,8 +4,8 @@ from itertools import cycle
 from pathlib import Path
 
 import numpy as np
-from display1593 import Display1593
 
+from display1593 import Display1593
 
 DATA_DIR = Path(__file__).parent / "data"
 TIME_STEP = 0.0625  # seconds
@@ -44,7 +44,7 @@ def main(dis, img_data):
             wait_time = max(0, next_time - time.monotonic())
             wait_times.append(wait_time)
             time.sleep(wait_time)
-            dis.show_now()
+            dis.show()
 
             actual_times.append(time.monotonic())
 

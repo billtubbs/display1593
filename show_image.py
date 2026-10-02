@@ -19,7 +19,7 @@ def main():
 
     with Display1593() as dis:
         dis.show_image(args.path, dimness=args.dimness)
-        dis.show_now()
+        dis.show()
 
 
 if __name__ == "__main__":

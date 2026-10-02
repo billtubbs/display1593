@@ -25,8 +25,8 @@ def main():
             # Test clear_all method
             dis.clear_all()
 
-            # Test show_now method
-            dis.show_now()
+            # Test show method
+            dis.show()
 
             # Test set_led method
             dis.clear_all()
@@ -34,7 +34,7 @@ def main():
             dis.set_led(797, BLUE)
             dis.set_led(798, RED)
             dis.set_led(1592, BLUE)
-            dis.show_now()
+            dis.show()
 
     #         # Test set_all_leds method
     #         rgb_array = np.stack([
@@ -42,7 +42,7 @@ def main():
     #         ]).astype('uint8')
     #         assert rgb_array.shape == (1593, 3)
     #         dis.set_all_leds(rgb_array)
-    #         dis.show_now()
+    #         dis.show()
     #
     #         # Test set_leds_one_colour method
     #         dis.clear_all()
@@ -50,13 +50,13 @@ def main():
     #         led_range = 600, 1000
     #         leds = np.arange(*led_range).astype('int32')
     #         dis.set_leds_one_colour(leds, rgb)
-    #         dis.show_now()
+    #         dis.show()
     #
     #         # Test set_all_leds_one_colour method
     #         dis.clear_all()
     #         rgb = [36, 4, 12]
     #         dis.set_all_leds_one_colour(rgb)
-    #         dis.show_now()
+    #         dis.show()
     #
     #         # Test set_leds method
     #         dis.clear_all()
@@ -72,7 +72,7 @@ def main():
     #             logger.info(f"Wait {t_next - t_now:.3f}s.")
     #             while t_now < t_next:
     #                 t_now = time.time()
-    #             dis.show_now()
+    #             dis.show()
     #             t_last = t_now
     #             start_led = (start_led + 1) % 1593
 

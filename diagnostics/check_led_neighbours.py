@@ -72,7 +72,7 @@ def show_led_and_neighbours(dis, nearest_neighbours, led_id):
     # second Teensy board (ids >= 798) - use set_leds_one_colour() for the
     # centre LED too since that command path works on both boards.
     dis.set_leds_one_colour([led_id], CENTRE_COLOUR)
-    dis.show_now()
+    dis.show()
     print(f"LED {led_id} (white), neighbours {neighbours.tolist()} (red)")
 
 
@@ -114,7 +114,7 @@ def main():
             show_led_and_neighbours(dis, nearest_neighbours, led_id)
 
         dis.clear_all()
-        dis.show_now()
+        dis.show()
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ The main loop then runs once per wall-clock second, driven by a
 flash element's state for the upcoming second, and, when the upcoming
 second is about to roll the minute over, also stages repainted digits for
 the new time. Only after all of that staging is done does the loop wait
-for the tick and call `dis.show_now()` - so the one call that actually
+for the tick and call `dis.show()` - so the one call that actually
 makes the display update happens with nothing else between it and the
 tick, and a minute rollover's digit change and flash toggle land in the
 same hardware refresh instead of two separate ones.
@@ -110,9 +110,9 @@ def push_changes(dis, smem, smem_prev, initialized):
     never been pushed at all).
 
     This only transfers the new values to the microcontrollers (set_leds);
-    it does NOT call dis.show_now(). Staging is the slow part (a serial
+    it does NOT call dis.show(). Staging is the slow part (a serial
     write per changed LED), so callers do it ahead of a tick and trigger
-    the actual display update with a bare show_now() right after
+    the actual display update with a bare show() right after
     SecondTicker.wait_for_tick() returns, keeping that gap as small as
     possible.
     """
@@ -187,7 +187,7 @@ def main():
         # First frame is a special case: there's no earlier tick to stage
         # ahead of, since we needed *this* tick to know what to paint.
         push_changes(dis, smem, smem_prev, initialized)
-        dis.show_now()
+        dis.show()
         logger.info("%2d:%2d", hr, m)
 
         while True:
@@ -229,11 +229,11 @@ def main():
             # Stage the flash element's state for the second we're about
             # to enter, then wait for it to actually arrive before showing
             # anything - a minute rollover's digit change and flash toggle
-            # land in the same show_now().
+            # land in the same show().
             dis.set_leds(flash_idx, flash_rgb(flash_vals, next_second))
 
             t = ticker.wait_for_tick()
-            dis.show_now()
+            dis.show()
 
             if next_second == 0:
                 logger.info("%2d:%2d", hr, m)

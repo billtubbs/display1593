@@ -69,13 +69,15 @@ Key pieces `display1593.py` relies on:
   correct board + local LED id (`self.led_idx` cumulative boundaries; the
   numba-jitted `_board_leds`/`_board_leds_with_rgb`/`make_idx_array` do this
   split). `set_leds()`/`set_all_leds()` only *stage* values on the
-  microcontrollers - nothing is actually shown until `show_now()`. Exposes
+  microcontrollers - nothing is actually shown until `show()`. Exposes
   the display geometry as `dis.leds` (`centres_x`/`centres_y`,
   `nearest_neighbours`, `nearest_neighbour_distances`) so callers (schelling,
   fluidsim) can do spatial reasoning without re-deriving it. Usable as a
   context manager (`with Display1593() as dis:`), which calls `connect()`/
-  `disconnect()`. `connect()` drains stale bytes from each port's input
-  buffer before reading the board's hello message.
+  `disconnect()`. `show(t=None)` sends the show command now, or (with
+  `t`, a `time.monotonic()` value) waits until `t` first, logging a
+  warning if `t` has already passed. `connect()` drains stale bytes from
+  each port's input buffer before reading the board's hello message.
   - **Sync vs. async serial.** By default every command is sent and its
     checksummed response checked before returning. Calling
     `start_serial_workers()` switches to an optional async pipeline: one
@@ -83,9 +85,8 @@ Key pieces `display1593.py` relies on:
     `max_inflight` commands outstanding and validates responses in FIFO
     order, with a `response_timeout` that stops the worker (recording
     `last_error`) instead of blocking forever. While workers are running,
-    `set_leds()`/`clear_all()`/`show_now()` etc. just enqueue and return
-    immediately (`submit_frame()`/`commit_frame()` are the frame-level
-    equivalents). **No entry-point script currently enables the workers**
+    `set_leds()`/`clear_all()`/`show()` etc. just enqueue and return
+    immediately. **No entry-point script currently enables the workers**
     - only `diagnostics/serial_worker_timing.py` does - so the clock,
     fireplace, fluidsim etc. all run on the synchronous path. If a worker
     dies (timeout), the driver falls back to the synchronous path
@@ -127,7 +128,7 @@ Key pieces `display1593.py` relies on:
   brightness into a persistent `smem` buffer, diffed against `smem_prev` to
   push only changed LEDs (`push_changes`). Rendering itself is delegated to a
   clock face object (see `digclock1.py`). Staging (`set_leds`) happens ahead
-  of a tick; the actual `show_now()` fires immediately after the tick so a
+  of a tick; the actual `show()` fires immediately after the tick so a
   minute rollover's digit change and flash toggle land in one hardware
   refresh.
 - **`show_image.py`** - crops/resizes and displays a single image file.
@@ -150,7 +151,7 @@ the repo root (log files are written to the current directory).
   boards" check: lights a few LEDs across both boards, then clears them.
 - **`serial_worker_timing.py`** - per-phase timing of the async serial
   worker pipeline (command generation, queueing, send, response wait,
-  `show_now()`); `--mock` runs it without hardware.
+  `show()`); `--mock` runs it without hardware.
 - **`comm_led_test.py`, `led_command_tests.py`,
   `frame_display_speed_test.py`** - older low-level protocol/timing tests
   (some predate the `src/display1593` package layout and import
@@ -239,4 +240,4 @@ layout geometry).
   anything computed fresh from `ledArray_data_1593.py`'s own arrays for
   edge LEDs.
 - `set_leds`/`set_all_leds`/etc. only stage LED state on the microcontrollers;
-  nothing appears on the physical display until `show_now()` is called.
+  nothing appears on the physical display until `show()` is called.

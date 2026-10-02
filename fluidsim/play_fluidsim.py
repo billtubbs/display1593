@@ -232,7 +232,7 @@ def run(
             if wait_time < 0:
                 wait_time = 0
             time.sleep(wait_time)
-            dis.show_now()
+            dis.show()
 
             now = time.monotonic()
             if now - report_start >= report_interval:

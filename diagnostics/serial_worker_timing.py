@@ -9,7 +9,7 @@ large LED update burst:
 - queueing them to serial workers
 - the worker's send() call
 - the worker's response wait/check
-- the final show_now() frame commit
+- the final show() frame commit
 
 The script is intended for the Raspberry Pi with real hardware, but it also
 supports a `--mock` mode so it can be run locally without a display attached.
@@ -68,7 +68,7 @@ def _run_instrumented_worker_benchmark(
     response_times = []
     queue_times = []
     generation_times = []
-    show_now_times = []
+    show_times = []
     total_times = []
     lock = threading.Lock()
 
@@ -184,8 +184,8 @@ def _run_instrumented_worker_benchmark(
 
             total_start = time.perf_counter_ns()
             show_start = time.perf_counter_ns()
-            display.show_now()
-            show_now_times.append(time.perf_counter_ns() - show_start)
+            display.show()
+            show_times.append(time.perf_counter_ns() - show_start)
             for worker in display.serial_workers:
                 worker.queue.join()
             total_times.append(time.perf_counter_ns() - total_start)
@@ -200,7 +200,7 @@ def _run_instrumented_worker_benchmark(
         "queue_ms": np.array(queue_times) / 1_000_000,
         "send_ms": np.array(send_times) / 1_000_000,
         "response_ms": np.array(response_times) / 1_000_000,
-        "show_now_ms": np.array(show_now_times) / 1_000_000,
+        "show_ms": np.array(show_times) / 1_000_000,
         "total_ms": np.array(total_times) / 1_000_000,
         "debug_events": debug_events,
         "seen_debug": seen_debug,
@@ -262,7 +262,7 @@ def run_benchmark(
             finally:
                 try:
                     display.clear_all()
-                    display.show_now()
+                    display.show()
                 finally:
                     display.stop_serial_workers()
                     display.disconnect()
@@ -270,7 +270,7 @@ def run_benchmark(
         if display is not None and not mock_mode:
             try:
                 display.clear_all()
-                display.show_now()
+                display.show()
             except Exception:
                 pass
 
@@ -298,7 +298,7 @@ def run_benchmark(
         ("queueing", "queue_ms"),
         ("send", "send_ms"),
         ("response_check", "response_ms"),
-        ("show_now", "show_now_ms"),
+        ("show", "show_ms"),
         ("total", "total_ms"),
     ]
 

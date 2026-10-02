@@ -48,7 +48,7 @@ def main(dis, filenames):
             wait_time = max(0, next_time - time.monotonic())
             wait_times.append(wait_time)
             time.sleep(wait_time)
-            dis.show_now()
+            dis.show()
 
             actual_times.append(time.monotonic())
 

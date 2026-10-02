@@ -346,7 +346,7 @@ def test_display1593_exposes_async_serial_setup():
     assert hasattr(display, "submit_serial_command")
 
 
-def test_show_now_uses_active_serial_workers(monkeypatch):
+def test_show_uses_active_serial_workers(monkeypatch):
     class DummySerial:
         def __init__(self):
             self.in_waiting = 0
@@ -375,7 +375,7 @@ def test_show_now_uses_active_serial_workers(monkeypatch):
         worker.start()
 
     try:
-        display.show_now()
+        display.show()
         deadline = time.monotonic() + 2
         while len(processed) < 2 and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -391,46 +391,59 @@ def test_show_now_uses_active_serial_workers(monkeypatch):
             worker.join(timeout=1)
 
 
-def test_submit_frame_stages_commands_for_each_board(monkeypatch):
+def _sync_display(monkeypatch):
+    """Display with two dummy connections and no workers (synchronous
+    mode), recording the time each command is sent."""
     sent = []
 
     class DummySerial:
-        def __init__(self):
-            self.in_waiting = 0
+        in_waiting = 0
 
     def fake_send(ser, cmd):
-        sent.append(cmd.copy())
-
-    def fake_check(ser, cmd):
-        return None
+        sent.append((time.monotonic(), bytes(cmd)))
 
     monkeypatch.setattr(
         "display1593.display1593.send_data_to_arduino", fake_send
     )
-    monkeypatch.setattr("display1593.display1593.check_response", fake_check)
-
+    monkeypatch.setattr(
+        "display1593.display1593.check_response",
+        lambda ser, cmd, timeout_after=1: None,
+    )
     display = Display1593()
     display._connections = [DummySerial(), DummySerial()]
-    display.serial_workers = [
-        BoardSerialWorker(display._connections[0]),
-        BoardSerialWorker(display._connections[1]),
-    ]
-    for worker in display.serial_workers:
-        worker.start()
+    return display, sent
 
-    try:
-        display.submit_frame(
-            {
-                0: [np.array([1, 2, 3], dtype=np.uint8)],
-                1: [np.array([4, 5, 6], dtype=np.uint8)],
-            }
-        )
-        time.sleep(0.1)
-        assert len(sent) == 2
-    finally:
-        for worker in display.serial_workers:
-            worker.shutdown()
-            worker.join(timeout=1)
+
+def test_show_sync_sends_sn_to_both_boards_immediately(monkeypatch):
+    display, sent = _sync_display(monkeypatch)
+
+    display.show()
+
+    assert [cmd for _, cmd in sent] == [b"SN", b"SN"]
+
+
+def test_show_sync_waits_until_t(monkeypatch):
+    display, sent = _sync_display(monkeypatch)
+
+    t = time.monotonic() + 0.05
+    display.show(t)
+
+    assert [cmd for _, cmd in sent] == [b"SN", b"SN"]
+    assert sent[0][0] >= t
+    assert sent[0][0] - t < 0.005
+
+
+def test_show_sync_warns_and_shows_immediately_if_t_passed(
+    monkeypatch, caplog
+):
+    display, sent = _sync_display(monkeypatch)
+
+    before = time.monotonic()
+    display.show(before - 0.5)
+
+    assert [cmd for _, cmd in sent] == [b"SN", b"SN"]
+    assert sent[0][0] - before < 0.005
+    assert "Show time missed" in caplog.text
 
 
 if __name__ == "__main__":

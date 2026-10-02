@@ -45,7 +45,7 @@ class DummyDisplay:
             nearest_neighbour_distances=nearest_neighbour_distances,
         )
         self.led_colours = {}
-        self.show_now_calls = 0
+        self.show_calls = 0
 
     def set_led(self, i, rgb):
         self.led_colours[i] = rgb
@@ -57,8 +57,8 @@ class DummyDisplay:
     def clear_all(self):
         self.led_colours.clear()
 
-    def show_now(self):
-        self.show_now_calls += 1
+    def show(self):
+        self.show_calls += 1
 
 
 def test_population_show_flushes_display():
@@ -67,7 +67,7 @@ def test_population_show_flushes_display():
 
     population.show()
 
-    assert display.show_now_calls == 1
+    assert display.show_calls == 1
 
 
 def test_agent_move_flushes_display():
@@ -77,7 +77,7 @@ def test_agent_move_flushes_display():
 
     agent.move(show=True)
 
-    assert display.show_now_calls >= 1
+    assert display.show_calls >= 1
 
 
 def test_population_uses_full_led_range():

@@ -9,7 +9,7 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       colour), `GB` (get photoresistor brightness), `GT` (get clock time),
       `SA` (show at scheduled clock time), `RR` (report ready to show).
       `SA`/`RR` in particular look like the intended mechanism for the
-      cross-board sync noted as a TODO in `Display1593.show_now()`.
+      cross-board sync noted as a TODO in `Display1593.show()`.
 - [ ] `fluidsim`: replace `NavierStokesSim`'s explicit (RK4) advection with
       Jos Stam-style semi-Lagrangian advection (trace each point back by
       `-dt*(u,v)` and interpolate from its `nearest_neighbours`, using the
@@ -237,7 +237,7 @@ inline `# TODO:` comments in the source for smaller, file-local items).
 - [ ] Fix unbounded frame-pacing drift in `play_fluidsim.py`'s `run()`.
       `compute_time` (checked against the `--fps` budget, e.g. 200ms at
       fps=5) only measures `sim.step()` + `temperature_to_rgb()` - it
-      excludes `dis.set_all_leds()` and `dis.show_now()`, the actual
+      excludes `dis.set_all_leds()` and `dis.show()`, the actual
       serial writes to the Teensy boards, which are not free (all 1593
       LEDs' RGB values over a 57600-baud link, every frame). Observed
       live on the Pi Zero 2W: `compute_time` alone was a healthy 153-

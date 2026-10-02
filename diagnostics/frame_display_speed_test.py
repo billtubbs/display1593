@@ -24,7 +24,7 @@ try:
         # Count up
         for d in data:
             dis.set_all_leds(d)
-            dis.show_now()
+            dis.show()
 
             next_frame_time += FRAME_PERIOD
             delay = next_frame_time - time.perf_counter()
@@ -34,7 +34,7 @@ try:
         # Count down (skip first and last frames)
         for d in data[-2:0:-1]:
             dis.set_all_leds(d)
-            dis.show_now()
+            dis.show()
 
             next_frame_time += FRAME_PERIOD
             delay = next_frame_time - time.perf_counter()
@@ -45,4 +45,4 @@ except KeyboardInterrupt:
     pass
 
 dis.clear_all()
-dis.show_now()
+dis.show()
