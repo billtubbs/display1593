@@ -1,8 +1,11 @@
 """Play the precomputed fire animation on the display, in a loop.
 
-The animation is a sequence of per-LED RGB frames (one CSV per frame in
-data/), played at FPS (slower than the original video's 32 fps, which
-looks better).
+The animation is a sequence of per-LED RGB frames, loaded from
+data/fire_frames.npz (array "led_frames", shape (n_frames, 1593, 3),
+uint8) if present, otherwise from one CSV per frame in data/. The .npz
+isn't committed (it's ~11 MB per version) - it's generated in the
+led-fire-place repo and copied to the Pi. Frames are played at FPS
+(slower than the original video's 30 fps, which looks better).
 
 Uses the display's pipelined mode by default (each show(t) displays the
 previous frame at t while the next one is sent), which keeps frame times
@@ -22,6 +25,7 @@ from display1593 import Display1593
 from display1593.logging_utils import configure_root_logging
 
 DATA_DIR = Path(__file__).parent / "data"
+NPZ_FILENAME = "fire_frames.npz"
 LOG_PATH = Path(__file__).parent / "play_fire_frames.log"
 FPS = 24
 
@@ -40,8 +44,16 @@ class WarningCounter(logging.Handler):
 
 
 def load_led_frames(data_dir):
-    """Loads precomputed LED RGB frames (one CSV per frame) from data_dir."""
+    """
+    Loads precomputed LED RGB frames from NPZ_FILENAME in data_dir if it
+    exists, otherwise from the CSV files (one per frame) in data_dir.
+    """
+    npz_path = Path(data_dir) / NPZ_FILENAME
+    if npz_path.exists():
+        logger.info("Loading frames from %s", npz_path)
+        return np.load(npz_path)["led_frames"]
     frame_paths = sorted(Path(data_dir).glob("*.csv"))
+    logger.info("Loading %d CSV frames from %s", len(frame_paths), data_dir)
     return [np.loadtxt(p, delimiter=",", dtype="uint8") for p in frame_paths]
 
 
@@ -106,7 +118,7 @@ if __name__ == "__main__":
         "--fps",
         type=float,
         default=FPS,
-        help="frame rate (default %(default)s; the original video is 32)",
+        help="frame rate (default %(default)s; the original video is 30)",
     )
     parser.add_argument(
         "--sync",
