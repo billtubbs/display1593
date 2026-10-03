@@ -44,7 +44,7 @@ Colour
 ------
 By default the digits are plain red. With `--temp-colour`, they are
 coloured by the current outdoor temperature, mapped onto
-matplotlib's "plasma" colormap (`temperature_colour`). An
+a matplotlib colormap (`CMAP_NAME`, `temperature_colour`). An
 `OutdoorTemperature` background thread polls Environment Canada's
 citypage weather API, so a slow or failed request never delays a tick.
 Observations are hourly, so it polls `WEATHER_POLL_OFFSET_SECS` after
@@ -91,16 +91,23 @@ WEATHER_POLL_OFFSET_SECS = 60
 WEATHER_RETRY_SECS = 5 * 60
 WEATHER_TIMEOUT_SECS = 10
 
-# Temperature range mapped onto the colormap. Calgary Int'l A daily
-# extremes, Oct 2021 - Oct 2026: -36.2 C (2024-01-14), 35.1 C
-# (2023-07-24). Temperatures outside it are clipped.
-T_MIN = -36.0
-T_MAX = 35.0
 CMAP_NAME = "inferno"
-# Fraction of the colormap used at T_MIN and T_MAX. Plasma's bottom end
-# is almost black, so the coldest temperatures start part way up it.
-CMAP_LOW = 0.15
-CMAP_HIGH = 1.0
+# Colormap position (0-1) for temperature T (deg C):
+#   CMAP_U0 + CMAP_U1 * exp(T / CMAP_T_SCALE), clipped at 1.
+# Fitted to points chosen by eye on the colormap (-30 C -> 0.26,
+# 10 C -> 0.48, 30 C -> 0.80), so ~10 C is mid-range red and only the
+# hottest days reach yellow. It flattens out on the cold side, so
+# Calgary's coldest (-36.2 C in Oct 2021 - Oct 2026) is ~0.24, clear of
+# inferno's black bottom end.
+CMAP_U0 = 0.19
+CMAP_U1 = 0.2
+CMAP_T_SCALE = 27.0
+# The LEDs' output is a non-linear (concave) function of the programmed
+# value, so mid-level channels look brighter than on a screen (e.g. an
+# orange's green channel makes it look yellow). The colour's channels
+# are raised to this power, then rescaled to keep its brightest
+# channel, so the hue looks like the colormap's. 1 turns this off.
+COLOUR_GAMMA = 2.2
 # Digit colour by default, and with --temp-colour before any temperature
 # has been fetched.
 DEFAULT_COLOUR = np.array([1.0, 0.0, 0.0])
@@ -269,10 +276,10 @@ def temperature_colour(temp):
 
     if temp is None:
         return DEFAULT_COLOUR
-    u = np.clip((temp - T_MIN) / (T_MAX - T_MIN), 0.0, 1.0)
-    return np.array(
-        colormaps[CMAP_NAME](CMAP_LOW + u * (CMAP_HIGH - CMAP_LOW))[:3]
-    )
+    u = min(CMAP_U0 + CMAP_U1 * np.exp(temp / CMAP_T_SCALE), 1.0)
+    colour = np.array(colormaps[CMAP_NAME](u)[:3])
+    corrected = colour**COLOUR_GAMMA
+    return corrected * colour.max() / corrected.max()
 
 
 def colour_rgb(vals, colour):

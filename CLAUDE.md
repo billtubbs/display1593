@@ -154,9 +154,13 @@ Key pieces `display1593.py` relies on:
   refresh. Digits are plain red by default; with `--temp-colour` they're
   coloured by the current outdoor temperature in Calgary (Environment
   Canada citypage API, location `ab-52`, polled a minute after each
-  hourly observation is due by an `OutdoorTemperature` daemon thread), mapped onto matplotlib's "plasma" between `T_MIN`/`T_MAX`
-  (5-year daily extremes) and `CMAP_LOW`/`CMAP_HIGH` (skipping plasma's
-  near-black bottom end), re-evaluated at each minute rollover.
+  hourly observation is due by an `OutdoorTemperature` daemon thread),
+  mapped onto matplotlib's "inferno" (`CMAP_NAME`; plasma looked pinkish
+  in the middle) at position `CMAP_U0 + CMAP_U1 * exp(T / CMAP_T_SCALE)`,
+  fitted to points chosen by eye (non-linear, so ~10 C isn't already
+  yellow; skips the black bottom end), with the hue
+  gamma-corrected (`COLOUR_GAMMA`) for the LEDs' non-linear response.
+  Re-evaluated at each minute rollover.
 - **`show_image.py`** - crops/resizes and displays a single image file.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;
