@@ -91,25 +91,28 @@ WEATHER_POLL_OFFSET_SECS = 60
 WEATHER_RETRY_SECS = 5 * 60
 WEATHER_TIMEOUT_SECS = 10
 
-# Temperatures (deg C) shown as pure blue and pure red, linear in
-# between (magenta at the midpoint) and clipped beyond. Calgary Int'l A
-# daily extremes, Oct 2021 - Oct 2026: -36.2 C, 35.1 C.
+# Temperature colour scale: blue (cold) -> magenta -> red (hot), at
+# constant brightness, using only the red and blue LED elements. Chosen
+# by showing the whole scale across the display and tuning by eye:
+# matplotlib colormaps (plasma, inferno) looked pinkish or yellowish on
+# the LEDs, and diverging blue-red maps pass through a bright white
+# middle, so this simple two-colour blend replaced them.
+#
+# Temperatures (deg C) shown as pure blue and pure red, clipped beyond.
+# Calgary Int'l A daily extremes, Oct 2021 - Oct 2026: -36.2 C, 35.1 C.
 T_COLD = -30.0
 T_HOT = 30.0
 # Luminance of the LEDs' blue element relative to red at the same
-# programmed value, used to keep the colour's brightness constant.
-# WS2812B-type 5050 LED datasheets give ~550-700 mcd red, ~200-400 mcd
-# blue (mcd is already weighted for the eye's sensitivity), so ~0.5 -
-# but saturated blue tends to look brighter than its luminance, and
-# these strips are old, so tune by eye: raise it if blue looks brighter
-# than red, lower it if dimmer.
+# programmed value, used to keep the brightness constant. WS2812B-type
+# 5050 LED datasheets give ~550-700 mcd red, ~200-400 mcd blue (mcd is
+# already weighted for the eye's sensitivity), so ~0.5; that looked
+# even on the display. Raise it if blue looks brighter than red, lower
+# it if dimmer.
 BLUE_LUMINANCE = 0.5
 # Red's share of the luminance is u**HUE_POWER (u = 0-1 from T_COLD to
-# T_HOT). The eye barely sees a little red mixed into blue, so with a
-# linear share (1) the cold half all looked blue and magenta appeared
-# ~70% of the way along; < 1 brings the red in sooner.
-# Photos of the full scale across the display, -30 C (left) to 30 C:
-# images/temp_colours_linear.jpg, images/temp_colours_hue_power_0.5.jpg.
+# T_HOT). The eye barely notices a little red mixed into blue, so with
+# a linear share (1) the cold half all looked blue and magenta appeared
+# ~70% of the way along; 0.5 brings it to about the middle.
 HUE_POWER = 0.5
 # Digit colour by default, and with --temp-colour before any temperature
 # has been fetched.
