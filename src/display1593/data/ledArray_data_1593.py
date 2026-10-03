@@ -11,7 +11,6 @@
 # nearest_neighbour_distances
 
 import numpy as np
-from scipy.spatial import KDTree
 
 num_cells = 1593
 max_num_neighbours = 6
@@ -3412,6 +3411,10 @@ def compute_nearest_neighbours(
     static nearest_neighbours / nearest_neighbour_distances arrays
     below.
     """
+    # Imported here, not at the top, so the layout data (centres_x,
+    # centres_y, ...) can be imported without scipy - e.g. by the
+    # gen-video-frames package's preview.
+    from scipy.spatial import KDTree
 
     points = np.column_stack((centres_x, centres_y))
     tree = KDTree(points, boxsize=[width, height])

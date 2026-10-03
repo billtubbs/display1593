@@ -44,6 +44,10 @@ with Display1593() as dis:
 
 - `show_digclock.py` - displays a digital clock on the LED display
 - `show_image.py` - displays a single image file on the LED display
+- `play_frames.py` - plays a precomputed LED frame sequence (an `.npz`
+  file, e.g. made from a video with
+  [gen-video-frames](https://github.com/billtubbs/gen-video-frames)) in a
+  loop: `python play_frames.py FRAMES.npz --fps 24`
 - `schelling.py` - runs a Schelling segregation simulation on the display
 - `fireplace/` - plays back precomputed fire animation frames
 - `fluidsim/` - buoyancy-driven fluid flow simulation on the display
@@ -219,9 +223,8 @@ every frame appears one frame earlier and `flush()` does nothing.
 
 ### Not yet done
 
-- No entry-point script uses pipelined mode yet. `fireplace/` and
-  `fluidsim/` are the obvious first candidates, since they update most of
-  the display every frame.
+- `play_frames.py` and `fireplace/` use pipelined mode; `fluidsim/`
+  doesn't yet, though it also updates most of the display every frame.
 - The show command still goes to each board separately. A planned
   firmware change will send it to TEENSY1 only, which will trigger
   TEENSY2 over the GPIO sync wire between the boards (see the TODOs in
