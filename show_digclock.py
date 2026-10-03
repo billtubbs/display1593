@@ -96,7 +96,7 @@ WEATHER_TIMEOUT_SECS = 10
 # (2023-07-24). Temperatures outside it are clipped.
 T_MIN = -36.0
 T_MAX = 35.0
-CMAP_NAME = "plasma"
+CMAP_NAME = "inferno"
 # Fraction of the colormap used at T_MIN and T_MAX. Plasma's bottom end
 # is almost black, so the coldest temperatures start part way up it.
 CMAP_LOW = 0.15
