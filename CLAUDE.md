@@ -155,12 +155,12 @@ Key pieces `display1593.py` relies on:
   coloured by the current outdoor temperature in Calgary (Environment
   Canada citypage API, location `ab-52`, polled a minute after each
   hourly observation is due by an `OutdoorTemperature` daemon thread),
-  mapped onto matplotlib's "inferno" (`CMAP_NAME`; plasma looked pinkish
-  in the middle) at position `CMAP_U0 + CMAP_U1 * exp(T / CMAP_T_SCALE)`,
-  fitted to points chosen by eye (non-linear, so ~10 C isn't already
-  yellow; skips the black bottom end), with the hue
-  gamma-corrected (`COLOUR_GAMMA`) for the LEDs' non-linear response.
-  Re-evaluated at each minute rollover.
+  blue (`T_COLD`) -> magenta -> red (`T_HOT`), linear in temperature, at
+  constant luminance (`BLUE_LUMINANCE`, blue/red brightness ratio, tune
+  by eye), red's share warped by `HUE_POWER` so the cold half isn't all
+  blue. Matplotlib colormaps (plasma, then inferno with a non-linear
+  temperature map and gamma correction) were tried first and dropped:
+  pinkish/yellowish on the LEDs. Re-evaluated at each minute rollover.
 - **`show_image.py`** - crops/resizes and displays a single image file.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;

@@ -43,8 +43,8 @@ same hardware refresh instead of two separate ones.
 Colour
 ------
 By default the digits are plain red. With `--temp-colour`, they are
-coloured by the current outdoor temperature, mapped onto
-a matplotlib colormap (`CMAP_NAME`, `temperature_colour`). An
+coloured by the current outdoor temperature, from blue (cold) through
+magenta to red (hot) at constant brightness (`temperature_colour`). An
 `OutdoorTemperature` background thread polls Environment Canada's
 citypage weather API, so a slow or failed request never delays a tick.
 Observations are hourly, so it polls `WEATHER_POLL_OFFSET_SECS` after
@@ -91,23 +91,26 @@ WEATHER_POLL_OFFSET_SECS = 60
 WEATHER_RETRY_SECS = 5 * 60
 WEATHER_TIMEOUT_SECS = 10
 
-CMAP_NAME = "inferno"
-# Colormap position (0-1) for temperature T (deg C):
-#   CMAP_U0 + CMAP_U1 * exp(T / CMAP_T_SCALE), clipped at 1.
-# Fitted to points chosen by eye on the colormap (-30 C -> 0.26,
-# 10 C -> 0.48, 30 C -> 0.80), so ~10 C is mid-range red and only the
-# hottest days reach yellow. It flattens out on the cold side, so
-# Calgary's coldest (-36.2 C in Oct 2021 - Oct 2026) is ~0.24, clear of
-# inferno's black bottom end.
-CMAP_U0 = 0.19
-CMAP_U1 = 0.2
-CMAP_T_SCALE = 27.0
-# The LEDs' output is a non-linear (concave) function of the programmed
-# value, so mid-level channels look brighter than on a screen (e.g. an
-# orange's green channel makes it look yellow). The colour's channels
-# are raised to this power, then rescaled to keep its brightest
-# channel, so the hue looks like the colormap's. 1 turns this off.
-COLOUR_GAMMA = 2.2
+# Temperatures (deg C) shown as pure blue and pure red, linear in
+# between (magenta at the midpoint) and clipped beyond. Calgary Int'l A
+# daily extremes, Oct 2021 - Oct 2026: -36.2 C, 35.1 C.
+T_COLD = -30.0
+T_HOT = 30.0
+# Luminance of the LEDs' blue element relative to red at the same
+# programmed value, used to keep the colour's brightness constant.
+# WS2812B-type 5050 LED datasheets give ~550-700 mcd red, ~200-400 mcd
+# blue (mcd is already weighted for the eye's sensitivity), so ~0.5 -
+# but saturated blue tends to look brighter than its luminance, and
+# these strips are old, so tune by eye: raise it if blue looks brighter
+# than red, lower it if dimmer.
+BLUE_LUMINANCE = 0.5
+# Red's share of the luminance is u**HUE_POWER (u = 0-1 from T_COLD to
+# T_HOT). The eye barely sees a little red mixed into blue, so with a
+# linear share (1) the cold half all looked blue and magenta appeared
+# ~70% of the way along; < 1 brings the red in sooner.
+# Photos of the full scale across the display, -30 C (left) to 30 C:
+# images/temp_colours_linear.jpg, images/temp_colours_hue_power_0.5.jpg.
+HUE_POWER = 0.5
 # Digit colour by default, and with --temp-colour before any temperature
 # has been fetched.
 DEFAULT_COLOUR = np.array([1.0, 0.0, 0.0])
@@ -270,16 +273,18 @@ def temperature_colour(temp):
     """
     Digit colour (three floats, 0-1) for an outdoor temperature in deg C,
     or DEFAULT_COLOUR if temp is None.
-    """
-    # Imported here so the default red clock doesn't need matplotlib.
-    from matplotlib import colormaps
 
+    Blue (T_COLD) -> magenta -> red (T_HOT) at constant luminance: red
+    supplies a fraction u**HUE_POWER of it and blue the rest (the LEDs' light
+    output is linear in the programmed value), scaled so the brighter
+    channel at either end is 1.
+    """
     if temp is None:
         return DEFAULT_COLOUR
-    u = min(CMAP_U0 + CMAP_U1 * np.exp(temp / CMAP_T_SCALE), 1.0)
-    colour = np.array(colormaps[CMAP_NAME](u)[:3])
-    corrected = colour**COLOUR_GAMMA
-    return corrected * colour.max() / corrected.max()
+    u = np.clip((temp - T_COLD) / (T_HOT - T_COLD), 0.0, 1.0)
+    u = u**HUE_POWER
+    lum = min(1.0, BLUE_LUMINANCE)
+    return np.array([lum * u, 0.0, lum * (1.0 - u) / BLUE_LUMINANCE])
 
 
 def colour_rgb(vals, colour):
@@ -403,8 +408,7 @@ if __name__ == "__main__":
         "--temp-colour",
         action="store_true",
         help="colour the digits by the current outdoor temperature "
-        "(Calgary, from Environment Canada) instead of plain red; "
-        "needs matplotlib",
+        "(Calgary, from Environment Canada) instead of plain red",
     )
     args = parser.parse_args()
     logger.info("=" * 35)
