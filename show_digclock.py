@@ -39,10 +39,29 @@ for the tick and call `dis.show()` - so the one call that actually
 makes the display update happens with nothing else between it and the
 tick, and a minute rollover's digit change and flash toggle land in the
 same hardware refresh instead of two separate ones.
+
+Colour
+------
+By default the digits are plain red. With `--temp-colour`, they are
+coloured by the current outdoor temperature, mapped onto
+matplotlib's "plasma" colormap (`temperature_colour`). An
+`OutdoorTemperature` background thread polls Environment Canada's
+citypage weather API, so a slow or failed request never delays a tick.
+Observations are hourly, so it polls `WEATHER_POLL_OFFSET_SECS` after
+the next one is due (from the current one's observation time), then
+every `WEATHER_RETRY_SECS` until a newer observation time appears. The
+colour is only re-evaluated at a minute rollover, when digits are being
+staged anyway; if it changed, every lit LED is re-staged. Until a
+temperature has been fetched successfully the digits are red; after
+that, a failed update just keeps the last known value.
 """
 
+import argparse
+import json
 import logging
-from datetime import datetime
+import threading
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +77,33 @@ LOG_PATH = BASE_DIR / "show_digclock.log"
 N_LEDS = 1593
 
 configure_root_logging(LOG_PATH)
+
+# Environment Canada citypage weather: current conditions for Calgary
+# (location ab-52, observed at Calgary Int'l Airport).
+WEATHER_URL = (
+    "https://api.weather.gc.ca/collections/citypageweather-realtime"
+    "/items/ab-52?f=json"
+)
+# Observations are hourly: poll this long after the next one is due,
+# then every WEATHER_RETRY_SECS until it appears (or after a failure).
+WEATHER_OBS_INTERVAL = timedelta(hours=1)
+WEATHER_POLL_OFFSET_SECS = 60
+WEATHER_RETRY_SECS = 5 * 60
+WEATHER_TIMEOUT_SECS = 10
+
+# Temperature range mapped onto the colormap. Calgary Int'l A daily
+# extremes, Oct 2021 - Oct 2026: -36.2 C (2024-01-14), 35.1 C
+# (2023-07-24). Temperatures outside it are clipped.
+T_MIN = -36.0
+T_MAX = 35.0
+CMAP_NAME = "plasma"
+# Fraction of the colormap used at T_MIN and T_MAX. Plasma's bottom end
+# is almost black, so the coldest temperatures start part way up it.
+CMAP_LOW = 0.15
+CMAP_HIGH = 1.0
+# Digit colour by default, and with --temp-colour before any temperature
+# has been fetched.
+DEFAULT_COLOUR = np.array([1.0, 0.0, 0.0])
 
 # Brightness divisor by hour-of-day (day/night dimming cycle).
 BCYCLE = {
@@ -104,7 +150,7 @@ def clear_digit(smem, clear_idx):
         smem[clear_idx] = 0
 
 
-def push_changes(dis, smem, smem_prev, initialized):
+def push_changes(dis, smem, smem_prev, initialized, colour):
     """
     Stage any LEDs whose value changed since the last push (or that have
     never been pushed at all).
@@ -115,11 +161,13 @@ def push_changes(dis, smem, smem_prev, initialized):
     the actual display update with a bare show() right after
     SecondTicker.wait_for_tick() returns, keeping that gap as small as
     possible.
+
+    Each LED's RGB value is its smem brightness times `colour` (three
+    floats, 0-1).
     """
     changed = np.nonzero((smem != smem_prev) | ~initialized)[0]
     if changed.size > 0:
-        rgb_array = np.zeros((changed.size, 3), dtype="uint8")
-        rgb_array[:, 0] = smem[changed]
+        rgb_array = colour_rgb(smem[changed], colour)
         dis.set_leds(changed, rgb_array)
         smem_prev[changed] = smem[changed]
         initialized[changed] = True
@@ -145,11 +193,97 @@ class SecondTicker:
         return self.time
 
 
-def flash_rgb(vals, second):
+class OutdoorTemperature:
+    """
+    Polls the current outdoor temperature (deg C) from Environment
+    Canada in a daemon thread. `value` is the last temperature fetched
+    successfully, or None if there hasn't been one yet, and `observed`
+    its observation time (UTC datetime).
+
+    The thread waits before its first poll, so call update() once
+    before start() to get a value straight away.
+    """
+
+    def __init__(self, url=WEATHER_URL):
+        self.url = url
+        self.value = None
+        self.observed = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def update(self):
+        """Fetch the temperature; on failure, log and keep the old value."""
+        try:
+            with urllib.request.urlopen(
+                self.url, timeout=WEATHER_TIMEOUT_SECS
+            ) as response:
+                props = json.load(response)["properties"]
+            conditions = props["currentConditions"]
+            temp = float(conditions["temperature"]["value"]["en"])
+            # e.g. "2026-10-03T16:00:00Z" (fromisoformat needs +00:00
+            # for "Z" before Python 3.11).
+            observed = datetime.fromisoformat(
+                conditions["timestamp"]["en"].replace("Z", "+00:00")
+            )
+        except Exception as e:
+            logger.warning("Outdoor temperature update failed: %r", e)
+            return
+        if observed != self.observed:
+            logger.info(
+                "Outdoor temperature %.1f C (observed %s)", temp, observed
+            )
+        self.value = temp
+        self.observed = observed
+
+    def seconds_until_next_poll(self):
+        """
+        Time until WEATHER_POLL_OFFSET_SECS after the next observation is
+        due, or WEATHER_RETRY_SECS if that's already passed (or there's
+        no observation yet).
+        """
+        if self.observed is None:
+            return WEATHER_RETRY_SECS
+        due = self.observed + WEATHER_OBS_INTERVAL
+        wait = (due - datetime.now(timezone.utc)).total_seconds()
+        wait += WEATHER_POLL_OFFSET_SECS
+        return wait if wait > 0 else WEATHER_RETRY_SECS
+
+    def _run(self):
+        while not self._stop.wait(self.seconds_until_next_poll()):
+            self.update()
+
+
+def temperature_colour(temp):
+    """
+    Digit colour (three floats, 0-1) for an outdoor temperature in deg C,
+    or DEFAULT_COLOUR if temp is None.
+    """
+    # Imported here so the default red clock doesn't need matplotlib.
+    from matplotlib import colormaps
+
+    if temp is None:
+        return DEFAULT_COLOUR
+    u = np.clip((temp - T_MIN) / (T_MAX - T_MIN), 0.0, 1.0)
+    return np.array(
+        colormaps[CMAP_NAME](CMAP_LOW + u * (CMAP_HIGH - CMAP_LOW))[:3]
+    )
+
+
+def colour_rgb(vals, colour):
+    """(n, 3) uint8 RGB array: brightness values `vals` times `colour`."""
+    rgb = np.rint(np.outer(vals, colour))
+    return np.clip(rgb, 0, 255).astype("uint8")
+
+
+def flash_rgb(vals, second, colour):
     """RGB values for the flash element for a given wall-clock second (on/off toggle)."""
-    rgb = np.zeros((vals.size, 3), dtype="uint8")
-    rgb[:, 0] = (second % 2) * vals
-    return rgb
+    return colour_rgb((second % 2) * vals, colour)
 
 
 def hour_digits(hr):
@@ -162,12 +296,21 @@ def minute_digits(m):
     return m // 10, m % 10
 
 
-def main():
+def main(temp_colour=False):
     face = SevenSegmentClockFace()
 
     smem = np.zeros(N_LEDS, dtype="uint8")
     smem_prev = np.zeros(N_LEDS, dtype="uint8")
     initialized = np.zeros(N_LEDS, dtype=bool)
+
+    weather = None
+    colour = DEFAULT_COLOUR
+    if temp_colour:
+        weather = OutdoorTemperature()
+        # First fetch before starting, so the first frame is coloured.
+        weather.update()
+        weather.start()
+        colour = temperature_colour(weather.value)
 
     with Display1593() as dis:
         ticker = SecondTicker()
@@ -186,7 +329,7 @@ def main():
 
         # First frame is a special case: there's no earlier tick to stage
         # ahead of, since we needed *this* tick to know what to paint.
-        push_changes(dis, smem, smem_prev, initialized)
+        push_changes(dis, smem, smem_prev, initialized, colour)
         dis.show()
         logger.info("%2d:%2d", hr, m)
 
@@ -222,15 +365,23 @@ def main():
                     clear_digit(smem, face.clear_indices(0))
                     paint(smem, *face.digit_leds(0, d4, bness))
 
+                # If the outdoor temperature changed the colour, re-stage
+                # every lit LED, not just the ones whose brightness changed.
+                if weather is not None:
+                    new_colour = temperature_colour(weather.value)
+                    if not np.array_equal(new_colour, colour):
+                        colour = new_colour
+                        initialized[smem > 0] = False
+
                 # Stage the new digits now, ahead of the tick that will
                 # make them current.
-                push_changes(dis, smem, smem_prev, initialized)
+                push_changes(dis, smem, smem_prev, initialized, colour)
 
             # Stage the flash element's state for the second we're about
             # to enter, then wait for it to actually arrive before showing
             # anything - a minute rollover's digit change and flash toggle
             # land in the same show().
-            dis.set_leds(flash_idx, flash_rgb(flash_vals, next_second))
+            dis.set_leds(flash_idx, flash_rgb(flash_vals, next_second, colour))
 
             t = ticker.wait_for_tick()
             dis.show()
@@ -240,6 +391,15 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument(
+        "--temp-colour",
+        action="store_true",
+        help="colour the digits by the current outdoor temperature "
+        "(Calgary, from Environment Canada) instead of plain red; "
+        "needs matplotlib",
+    )
+    args = parser.parse_args()
     logger.info("=" * 35)
     logger.info("%s started.", __file__)
-    main()
+    main(temp_colour=args.temp_colour)

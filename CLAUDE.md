@@ -151,7 +151,12 @@ Key pieces `display1593.py` relies on:
   clock face object (see `digclock1.py`). Staging (`set_leds`) happens ahead
   of a tick; the actual `show()` fires immediately after the tick so a
   minute rollover's digit change and flash toggle land in one hardware
-  refresh.
+  refresh. Digits are plain red by default; with `--temp-colour` they're
+  coloured by the current outdoor temperature in Calgary (Environment
+  Canada citypage API, location `ab-52`, polled a minute after each
+  hourly observation is due by an `OutdoorTemperature` daemon thread), mapped onto matplotlib's "plasma" between `T_MIN`/`T_MAX`
+  (5-year daily extremes) and `CMAP_LOW`/`CMAP_HIGH` (skipping plasma's
+  near-black bottom end), re-evaluated at each minute rollover.
 - **`show_image.py`** - crops/resizes and displays a single image file.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;
