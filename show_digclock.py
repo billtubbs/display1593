@@ -43,8 +43,9 @@ same hardware refresh instead of two separate ones.
 Colour
 ------
 By default the digits are plain red. With `--temp-colour`, they are
-coloured by the current outdoor temperature, from blue (cold) through
-magenta to red (hot) at constant brightness (`temperature_colour`). An
+coloured by the current outdoor temperature, in 10-degree bands: cyan
+below -10 C, then blue, green, red, and yellow from 20 C
+(`T_COLOUR_BANDS`, `temperature_colour`). An
 `OutdoorTemperature` background thread polls Environment Canada's
 citypage weather API, so a slow or failed request never delays a tick.
 Observations are hourly, so it polls `WEATHER_POLL_OFFSET_SECS` after
@@ -91,29 +92,20 @@ WEATHER_POLL_OFFSET_SECS = 60
 WEATHER_RETRY_SECS = 5 * 60
 WEATHER_TIMEOUT_SECS = 10
 
-# Temperature colour scale: blue (cold) -> magenta -> red (hot), at
-# constant brightness, using only the red and blue LED elements. Chosen
-# by showing the whole scale across the display and tuning by eye:
-# matplotlib colormaps (plasma, inferno) looked pinkish or yellowish on
-# the LEDs, and diverging blue-red maps pass through a bright white
-# middle, so this simple two-colour blend replaced them.
-#
-# Temperatures (deg C) shown as pure blue and pure red, clipped beyond.
-# Calgary Int'l A daily extremes, Oct 2021 - Oct 2026: -36.2 C, 35.1 C.
-T_COLD = -30.0
-T_HOT = 30.0
-# Luminance of the LEDs' blue element relative to red at the same
-# programmed value, used to keep the brightness constant. WS2812B-type
-# 5050 LED datasheets give ~550-700 mcd red, ~200-400 mcd blue (mcd is
-# already weighted for the eye's sensitivity), so ~0.5; that looked
-# even on the display. Raise it if blue looks brighter than red, lower
-# it if dimmer.
-BLUE_LUMINANCE = 0.5
-# Red's share of the luminance is u**HUE_POWER (u = 0-1 from T_COLD to
-# T_HOT). The eye barely notices a little red mixed into blue, so with
-# a linear share (1) the cold half all looked blue and magenta appeared
-# ~70% of the way along; 0.5 brings it to about the middle.
-HUE_POWER = 0.5
+# Temperature colour bands: (upper limit in deg C, RGB colour), in
+# increasing order; temperatures at or above the last limit get
+# T_COLOUR_ABOVE. A continuous blue-magenta-red scale was tried first,
+# but its colours (e.g. magenta) didn't look good and changes of a few
+# degrees were too small to notice. Colour components are 0 or 1, so
+# each lit channel gets exactly the BCYCLE-scaled brightness, as plain
+# red always did.
+T_COLOUR_BANDS = [
+    (-10.0, np.array([0.0, 1.0, 1.0])),  # cyan
+    (0.0, np.array([0.0, 0.0, 1.0])),  # blue
+    (10.0, np.array([0.0, 1.0, 0.0])),  # green
+    (20.0, np.array([1.0, 0.0, 0.0])),  # red
+]
+T_COLOUR_ABOVE = np.array([1.0, 1.0, 0.0])  # yellow
 # Digit colour by default, and with --temp-colour before any temperature
 # has been fetched.
 DEFAULT_COLOUR = np.array([1.0, 0.0, 0.0])
@@ -275,19 +267,14 @@ class OutdoorTemperature:
 def temperature_colour(temp):
     """
     Digit colour (three floats, 0-1) for an outdoor temperature in deg C,
-    or DEFAULT_COLOUR if temp is None.
-
-    Blue (T_COLD) -> magenta -> red (T_HOT) at constant luminance: red
-    supplies a fraction u**HUE_POWER of it and blue the rest (the LEDs' light
-    output is linear in the programmed value), scaled so the brighter
-    channel at either end is 1.
+    from T_COLOUR_BANDS, or DEFAULT_COLOUR if temp is None.
     """
     if temp is None:
         return DEFAULT_COLOUR
-    u = np.clip((temp - T_COLD) / (T_HOT - T_COLD), 0.0, 1.0)
-    u = u**HUE_POWER
-    lum = min(1.0, BLUE_LUMINANCE)
-    return np.array([lum * u, 0.0, lum * (1.0 - u) / BLUE_LUMINANCE])
+    for limit, colour in T_COLOUR_BANDS:
+        if temp < limit:
+            return colour
+    return T_COLOUR_ABOVE
 
 
 def colour_rgb(vals, colour):
