@@ -68,8 +68,8 @@ from pathlib import Path
 import numpy as np
 
 from display1593 import Display1593
-from display1593.logging_utils import configure_root_logging
 from display1593.digclock1 import SevenSegmentClockFace
+from display1593.logging_utils import configure_root_logging
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,10 @@ class SecondTicker:
         self.time = datetime.now().time()
 
     def wait_for_tick(self):
-        """Busy-wait until the wall-clock second changes, then return the new time."""
+        """
+        Busy-wait until the wall-clock second changes, then return the new
+        time.
+        """
         while datetime.now().time().second == self.time.second:
             pass
         self.time = datetime.now().time()
@@ -284,7 +287,10 @@ def colour_rgb(vals, colour):
 
 
 def flash_rgb(vals, second, colour):
-    """RGB values for the flash element for a given wall-clock second (on/off toggle)."""
+    """
+    RGB values for the flash element for a given wall-clock second
+    (on/off toggle).
+    """
     return colour_rgb((second % 2) * vals, colour)
 
 
