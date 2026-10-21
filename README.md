@@ -113,6 +113,53 @@ To watch the script's own log file:
 tail -f /home/pi/code/display1593/show_digclock.log
 ```
 
+### Troubleshooting: network drop-outs
+
+With `--temp-colour`, a network outage doesn't stop the clock, but the
+digits keep the colour of the last temperature fetched before the
+outage, which can be hours out of date. To check for this, look in
+`show_digclock.log`:
+
+- one `HH:MM` line per minute: the clock itself is running (a gap means
+  it stopped or restarted);
+- `Outdoor temperature X C (observed ...)` about once an hour: fetches
+  are working;
+- `Outdoor temperature update failed: ...` every 5 minutes: the Pi
+  can't reach the weather service. `Temporary failure in name
+  resolution` usually means the Pi has no network at all, not just a
+  DNS problem.
+
+```bash
+grep -E "update failed|Outdoor temperature|started" show_digclock.log | less
+```
+
+The log rotates at 256 KB with two backups (`.log.1`, `.log.2`), about a
+week of history in total.
+
+**Keep the system journal across reboots.** Raspberry Pi OS keeps the
+systemd journal in memory only
+(`/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`), so
+rebooting a Pi that has dropped off the network erases the Wi-Fi/DHCP
+messages that would explain why. To override it:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=persistent\nSystemMaxUse=50M\n' | \
+  sudo tee /etc/systemd/journald.conf.d/50-persistent.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --flush
+```
+
+Then, after an outage (`-b -1` = the previous boot, if you rebooted):
+
+```bash
+journalctl -b -1 | grep -iE "dhcp|lease|wlan0|NetworkManager"
+nmcli -f DHCP4,IP4 device show wlan0   # current lease time and expiry
+```
+
+See `TODO.md` for the outage pattern seen in October 2026 and the
+investigation still in progress.
+
 ## Playing animations: pipelined mode
 
 By default every driver call is synchronous: each command is sent to the

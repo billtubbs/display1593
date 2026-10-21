@@ -3,6 +3,60 @@
 Project-level tasks that don't belong to one specific line of code (see also
 inline `# TODO:` comments in the source for smaller, file-local items).
 
+- [ ] Pi keeps dropping off the network (investigation in progress,
+      started 2026-10-21). Symptom: with `--temp-colour` the clock
+      showed red (the 10-20 C band) when it was 4 C outside, and the Pi
+      couldn't be reached by ssh/ping on the LAN at 192.168.1.72 even
+      though the router's device list still showed it. A Pi reboot
+      fixed it, and it came back at the same address.
+
+      **What the logs showed** (`show_digclock.log` + two backups,
+      Oct 15-21): the red was the stale 12.5 C reading from just before
+      the latest outage, not the default colour. The clock never
+      stopped and there were no serial/board warnings. Outages show up
+      as continuous `Temporary failure in name resolution` failures,
+      and they're very regular:
+
+      | Last good fetch | First failure | Recovered        | Down     |
+      |-----------------|---------------|------------------|----------|
+      | Oct 15 02:54    | Oct 15 03:01  | Oct 16 00:01     | ~21 h    |
+      | Oct 16 23:01    | Oct 17 00:01  | Oct 17 21:01     | ~21 h    |
+      | Oct 18 20:06    | Oct 18 21:01  | Oct 19 18:06     | ~21 h    |
+      | Oct 20 17:06    | Oct 20 18:06  | reboot Oct 21 12:38 | ≥18.5 h |
+
+      It drops ~24 h after each reconnect, stays down ~21 h, then
+      recovers by itself: a 45 h cycle, repeating to within a few
+      minutes. Too regular for Wi-Fi power saving (random); best guess is
+      a 24 h DHCP lease that fails to renew with the Telus router. Why it
+      comes back after ~21 h is unexplained.
+
+      **Done so far:** enabled a persistent systemd journal (Raspberry
+      Pi OS trixie defaults to in-memory; see README "Troubleshooting:
+      network drop-outs"), so a reboot no longer erases the evidence.
+      Wi-Fi power saving deliberately left on for now so only one thing
+      changes at a time.
+
+      **Next:**
+      - [ ] Check the lease time: `nmcli -f DHCP4,IP4 device show wlan0`
+            (`dhcp_lease_time` 86400 = 24 h would fit).
+      - [ ] Test the prediction: next drop ~Oct 22 12:30-13:40 (24 h
+            after the 12:38 reboot). If it happens, check the router's
+            device list while it's down, then
+            `journalctl -b [-1] | grep -iE "dhcp|lease|wlan0|NetworkManager"`.
+            If it doesn't, the 45 h pattern isn't tied to reconnects;
+            rethink.
+      - [ ] If the lease theory holds up: DHCP reservation on the router
+            or static IP on the Pi. Then decide whether to also turn off
+            Wi-Fi power saving
+            (`nmcli connection modify <conn> 802-11-wireless.powersave 2`).
+      - [ ] Consider a watchdog (systemd timer: ping the gateway, restart
+            Wi-Fi, then reboot after repeated failures) so outages heal
+            in minutes, not ~21 h.
+      - [ ] `show_digclock.py`: show something distinct (e.g. dim white)
+            when the last good temperature is more than ~2 h old, so a
+            stale reading doesn't look like a valid colour.
+      - [ ] README's systemd unit example omits `--temp-colour`; update
+            it to match the Pi's actual unit.
 - [ ] Wire up the remaining firmware commands documented in
       `led_commands.md` (in the sibling `ser-comm-py` repo) that
       `Display1593` doesn't expose yet: `LB` (set brightness), `G1` (get LED
