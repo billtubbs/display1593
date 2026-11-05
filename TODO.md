@@ -30,7 +30,9 @@ inline `# TODO:` comments in the source for smaller, file-local items).
 
       (Oct 21-26 is missing: that part of the clock log has rotated
       away, and the Pi was rebooted on Oct 26. The Oct 31 outage was the
-      only short one; why isn't known.)
+      only short one; why isn't known. Times from Nov 1 to Nov 4 are the
+      Pi's, which were an hour behind Alberta time; see the tzdata item
+      below.)
 
       **Cause** (persistent journal, boots of Oct 26 and Nov 3; details
       in README "Troubleshooting: network drop-outs"): the router's
@@ -65,8 +67,8 @@ inline `# TODO:` comments in the source for smaller, file-local items).
 
       **Next:**
       - [ ] Verify: without the fix, the next drop would have come ~24 h
-            after the new lease of 2026-11-04 evening, i.e. ~Nov 5
-            evening. After that, and again after 2-3 days, check that
+            after the new lease of 2026-11-04 ~21:00, i.e. ~Nov 5
+            21:00 (Alberta time). After that, and again after 2-3 days, check that
             there are no `conflict detected` / `error -99` lines and no
             new `update failed`:
             `journalctl -b | grep -E "conflict detected|error -99|new lease"`
@@ -87,6 +89,23 @@ inline `# TODO:` comments in the source for smaller, file-local items).
             stale reading doesn't look like a valid colour.
       - [ ] README's systemd unit example omits `--temp-colour`; update
             it to match the Pi's actual unit.
+      - [ ] After the network fix is verified: `sudo apt full-upgrade`
+            and reboot (146 packages were pending on 2026-11-04, likely
+            including a kernel, Wi-Fi firmware and NetworkManager).
+            Waiting so the upgrade doesn't muddy the verification.
+
+- [x] Clock an hour slow from Nov 1, 2026 (fixed 2026-11-04). Alberta
+      stopped changing clocks: America/Edmonton stays on UTC-6 ("CST")
+      from 2026-11-01 02:00 (IANA tzdata 2026c). The Pi had tzdata
+      2026b, so it fell back to MST (UTC-7) on Nov 1 and the clock, its
+      day/night brightness (`BCYCLE`) and all log/journal times were an
+      hour behind until the fix. Fix:
+      `sudo apt update && sudo apt install --only-upgrade tzdata`
+      (got 2026f from trixie-updates), check with
+      `zdump -v -c 2026,2027 America/Edmonton | grep Nov` (want
+      `CST ... gmtoff=-21600`), then restart the clock service (a running
+      Python process keeps the time zone it started with). The time zone
+      stays America/Edmonton.
 - [ ] Wire up the remaining firmware commands documented in
       `led_commands.md` (in the sibling `ser-comm-py` repo) that
       `Display1593` doesn't expose yet: `LB` (set brightness), `G1` (get LED
