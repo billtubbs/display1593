@@ -3,55 +3,85 @@
 Project-level tasks that don't belong to one specific line of code (see also
 inline `# TODO:` comments in the source for smaller, file-local items).
 
-- [ ] Pi keeps dropping off the network (investigation in progress,
-      started 2026-10-21). Symptom: with `--temp-colour` the clock
-      showed red (the 10-20 C band) when it was 4 C outside, and the Pi
-      couldn't be reached by ssh/ping on the LAN at 192.168.1.72 even
-      though the router's device list still showed it. A Pi reboot
-      fixed it, and it came back at the same address.
+- [ ] Pi keeps dropping off the network: **cause found, fix applied
+      2026-11-04, now verifying.** Investigation started 2026-10-21:
+      the Pi couldn't be reached by ssh/ping at 192.168.1.72 although
+      the router's device list still showed it connected, and the clock
+      (`--temp-colour`) showed a stale temperature colour (the reading
+      from before the outage). The clock itself never stopped.
 
-      **What the logs showed** (`show_digclock.log` + two backups,
-      Oct 15-21): the red was the stale 12.5 C reading from just before
-      the latest outage, not the default colour. The clock never
-      stopped and there were no serial/board warnings. Outages show up
-      as continuous `Temporary failure in name resolution` failures,
-      and they're very regular:
+      **Pattern** (`show_digclock.log`, continuous `Temporary failure in
+      name resolution` during outages): a 45 h cycle, repeating to
+      within minutes. The network drops ~24 h after a new DHCP lease and
+      comes back by itself 21 h later.
 
-      | Last good fetch | First failure | Recovered        | Down     |
-      |-----------------|---------------|------------------|----------|
-      | Oct 15 02:54    | Oct 15 03:01  | Oct 16 00:01     | ~21 h    |
-      | Oct 16 23:01    | Oct 17 00:01  | Oct 17 21:01     | ~21 h    |
-      | Oct 18 20:06    | Oct 18 21:01  | Oct 19 18:06     | ~21 h    |
-      | Oct 20 17:06    | Oct 20 18:06  | reboot Oct 21 12:38 | ≥18.5 h |
+      | First failed fetch | Back               | Down    |
+      |--------------------|--------------------|---------|
+      | Oct 15 03:01       | Oct 16 00:01       | ~21 h   |
+      | Oct 17 00:01       | Oct 17 21:01       | ~21 h   |
+      | Oct 18 21:01       | Oct 19 18:06       | ~21 h   |
+      | Oct 20 18:06       | reboot Oct 21 12:38 | >=18.5 h |
+      | Oct 27 14:06       | Oct 28 11:06       | 21 h    |
+      | Oct 29 11:06       | Oct 30 08:06       | 21 h    |
+      | Oct 31 08:50       | Oct 31 17:10       | 8 h     |
+      | Nov 1 16:11        | Nov 2 13:11        | 21 h    |
+      | Nov 3 14:01        | reboot Nov 3 15:02 |         |
+      | Nov 4 16:01        | reboot Nov 4 19:40 |         |
 
-      It drops ~24 h after each reconnect, stays down ~21 h, then
-      recovers by itself: a 45 h cycle, repeating to within a few
-      minutes. Too regular for Wi-Fi power saving (random); best guess is
-      a 24 h DHCP lease that fails to renew with the Telus router. Why it
-      comes back after ~21 h is unexplained.
+      (Oct 21-26 is missing: that part of the clock log has rotated
+      away, and the Pi was rebooted on Oct 26. The Oct 31 outage was the
+      only short one; why isn't known.)
 
-      **Done so far:** enabled a persistent systemd journal (Raspberry
-      Pi OS trixie defaults to in-memory; see README "Troubleshooting:
-      network drop-outs"), so a reboot no longer erases the evidence.
-      Wi-Fi power saving deliberately left on for now so only one thing
-      changes at a time.
+      **Cause** (persistent journal, boots of Oct 26 and Nov 3; details
+      in README "Troubleshooting: network drop-outs"): the router's
+      DHCP lease is 24 h, renewed every 12 h. After each new lease and
+      each renewal, NetworkManager's IPv4 address conflict detection
+      logs a false conflict with host `00:00:00:00:00:00`. Around the
+      24 h renewal the address is removed from `wlan0` while the lease
+      is still considered valid (outage). At 87.5% of the lease (21 h)
+      the rebind fails with `error -99` (EADDRNOTAVAIL), and
+      NetworkManager restarts the connection and gets a fresh lease
+      (recovery). The Wi-Fi association stayed up throughout. A web
+      search (2026-11-04) found related NetworkManager reports (no
+      address assigned after a conflict, Red Hat bug 1713380;
+      `error N dispatching events` on renewal, bug 1817788) but nothing
+      on the all-zero MAC.
+
+      **Also found:** an old USB Wi-Fi dongle (Ralink RT5370,
+      `rt2800usb`) still on the USB hub from the previous Pi Zero. It
+      never carried the connection, so it isn't the cause, but it made
+      `wlan0`/`wlan1` swap between boots.
+
+      **Done 2026-11-04:**
+      - [x] Lease time checked: 86400 s (24 h).
+      - [x] Persistent journal (set up in October) confirmed working.
+      - [x] Dongle's driver blacklisted
+            (`/etc/modprobe.d/blacklist-rt2800usb.conf`); only `wlan0`
+            (built-in, `88:a2:9e:91:5c:e4`) remains.
+      - [x] Conflict check off: `ipv4.dad-timeout 0` on
+            `netplan-wlan0-Theseus`.
+      - [x] Wi-Fi power saving off (`802-11-wireless.powersave 2`), for
+            ssh latency: ping avg 18 -> 6.6 ms, max 65 -> 22 ms.
 
       **Next:**
-      - [ ] Check the lease time: `nmcli -f DHCP4,IP4 device show wlan0`
-            (`dhcp_lease_time` 86400 = 24 h would fit).
-      - [ ] Test the prediction: next drop ~Oct 22 12:30-13:40 (24 h
-            after the 12:38 reboot). If it happens, check the router's
-            device list while it's down, then
-            `journalctl -b [-1] | grep -iE "dhcp|lease|wlan0|NetworkManager"`.
-            If it doesn't, the 45 h pattern isn't tied to reconnects;
-            rethink.
-      - [ ] If the lease theory holds up: DHCP reservation on the router
-            or static IP on the Pi. Then decide whether to also turn off
-            Wi-Fi power saving
-            (`nmcli connection modify <conn> 802-11-wireless.powersave 2`).
+      - [ ] Verify: without the fix, the next drop would have come ~24 h
+            after the new lease of 2026-11-04 evening, i.e. ~Nov 5
+            evening. After that, and again after 2-3 days, check that
+            there are no `conflict detected` / `error -99` lines and no
+            new `update failed`:
+            `journalctl -b | grep -E "conflict detected|error -99|new lease"`
+            and `grep -a "update failed" show_digclock.log | tail -3`.
+      - [ ] If it still drops: turn on NetworkManager debug logging
+            (`sudo nmcli general logging level DEBUG domains DHCP4,IP4`)
+            to see where the zero-MAC ARP replies come from (suspects:
+            the router, or the brcmfmac firmware's ARP offload).
+      - [ ] Optional: DHCP reservation for the Pi (192.168.1.72) on the
+            Telus router, so the router also keeps its address fixed.
+      - [ ] Remove the dongle physically next time the display is taken
+            down (then delete the blacklist file).
       - [ ] Consider a watchdog (systemd timer: ping the gateway, restart
-            Wi-Fi, then reboot after repeated failures) so outages heal
-            in minutes, not ~21 h.
+            Wi-Fi, then reboot after repeated failures) so any future
+            outage heals in minutes, not ~21 h.
       - [ ] `show_digclock.py`: show something distinct (e.g. dim white)
             when the last good temperature is more than ~2 h old, so a
             stale reading doesn't look like a valid colour.

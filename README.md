@@ -130,8 +130,12 @@ outage, which can be hours out of date. To check for this, look in
   DNS problem.
 
 ```bash
-grep -E "update failed|Outdoor temperature|started" show_digclock.log | less
+grep -aE "update failed|Outdoor temperature|started" show_digclock.log | less
 ```
+
+Use `grep -a`: an unclean power-off can leave zero bytes in the log, and
+without `-a` grep then stops printing matches at that point (it reports
+`binary file matches` instead), hiding everything after it.
 
 The log rotates at 256 KB with two backups (`.log.1`, `.log.2`), about a
 week of history in total.
@@ -157,8 +161,89 @@ journalctl -b -1 | grep -iE "dhcp|lease|wlan0|NetworkManager"
 nmcli -f DHCP4,IP4 device show wlan0   # current lease time and expiry
 ```
 
-See `TODO.md` for the outage pattern seen in October 2026 and the
-investigation still in progress.
+#### Cause found (November 2026): NetworkManager's address conflict check
+
+From October to early November 2026 the Pi dropped off the network on a
+regular 45 h cycle: about 24 h after getting a new DHCP lease it lost its
+IP address, then got it back by itself 21 h later. During an outage the
+router still listed the Pi as connected at 192.168.1.72, but nothing
+answered there (no ping or ssh, and no ARP entry on the router or the
+Mac), and the clock logged `Temporary failure in name resolution`. The
+Wi-Fi link itself stayed up: the router's hourly key renewals kept
+completing.
+
+The persistent journal showed the same sequence every cycle:
+
+1. The router's DHCP lease is 24 h (`dhcp_lease_time = 86400`), so
+   NetworkManager renews it every 12 h.
+2. ~40 min after each new lease, and right after every renewal,
+   NetworkManager logged
+   `conflict detected for IP address 192.168.1.72 with host 00:00:00:00:00:00`.
+   This is its IPv4 address conflict detection (RFC 5227 ARP probing).
+   No real device has an all-zero hardware address, so these are false
+   alarms; where the replies come from (the router, or the Wi-Fi chip's
+   ARP offload firmware) isn't known.
+3. Around the 24 h renewal the address was removed from `wlan0`, while
+   NetworkManager still considered the lease valid: the outage starts.
+4. At 87.5% of the lease (21 h later), the DHCP rebind failed with
+   `dhcp4 (wlan0): error -99 dispatching events` (-99 is EADDRNOTAVAIL:
+   the address was no longer on the interface). NetworkManager then
+   restarted the connection, got a fresh lease, and the Pi was back. That
+   explains both the 24 h and the 21 h.
+
+**Fix (2026-11-04):** turn off the conflict check for the Wi-Fi
+connection (`ipv4.dad-timeout 0`). It only protects against another
+device using the same address, which can't happen here: the router
+assigns the address. Wi-Fi power saving was turned off at the same time
+(`802-11-wireless.powersave 2`, 2 = disable): it isn't implicated in the
+drops, but it made ssh laggy (ping to the Pi averaged 18 ms with spikes
+to 65 ms; afterwards 6.6 ms, at most 22 ms; the router is ~1 ms).
+
+```bash
+sudo nmcli connection modify netplan-wlan0-Theseus \
+  ipv4.dad-timeout 0 802-11-wireless.powersave 2
+nmcli -g ipv4.dad-timeout,802-11-wireless.powersave \
+  connection show netplan-wlan0-Theseus    # expect: 0, disable
+sudo nmcli connection up netplan-wlan0-Theseus
+```
+
+To check that it's holding (no `conflict detected` or `error -99` lines,
+only `new lease` about every 12 h, and no new `update failed`):
+
+```bash
+journalctl -b | grep -E "conflict detected|error -99|new lease"
+grep -a "update failed" ~/code/display1593/show_digclock.log | tail -3
+```
+
+#### Second Wi-Fi adapter (USB dongle) disabled
+
+A USB Wi-Fi dongle (Ralink RT5370, driver `rt2800usb`, `00:0f:60:0c:1d:82`)
+is still plugged into the USB hub from before the Pi Zero 2 W, which has
+built-in Wi-Fi (Broadcom, driver `brcmfmac`, `88:a2:9e:91:5c:e4`). The
+connection only ever used the built-in adapter, so the dongle wasn't the
+cause of the drops, but with two adapters the names `wlan0`/`wlan1`
+swapped between boots (the connection profile is named
+`netplan-wlan0-Theseus`), and the dongle shared the USB hub with the
+Teensy boards. Its driver is now blocked, so the built-in adapter is
+always `wlan0` (the dongle can stay plugged in; delete the file and
+reboot to undo):
+
+```bash
+echo "blacklist rt2800usb" | \
+  sudo tee /etc/modprobe.d/blacklist-rt2800usb.conf
+sudo reboot
+ip -br link    # only lo and wlan0
+```
+
+#### Pi network settings to reapply after a reinstall
+
+- persistent journal (above)
+- `/etc/modprobe.d/blacklist-rt2800usb.conf` (while the dongle is
+  plugged in)
+- `ipv4.dad-timeout 0` and `802-11-wireless.powersave 2` on the Wi-Fi
+  connection
+
+See `TODO.md` for the follow-up checks.
 
 ## Playing animations: pipelined mode
 
