@@ -102,7 +102,7 @@ inline `# TODO:` comments in the source for smaller, file-local items).
             the upgrade (new kernel / firmware / NetworkManager), with
             the check commands above.
 
-- [ ] `show_digclock.py`: `SecondTicker.wait_for_tick()` busy-waited
+- [x] `show_digclock.py`: `SecondTicker.wait_for_tick()` busy-waited
       (`while datetime.now().time().second == ...: pass`), keeping one
       CPU core at 100% all the time (load average a constant 1.00,
       seen 2026-11-09). **Changed 2026-11-09:** it now sleeps until 5 ms
@@ -110,10 +110,8 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       Tested on the Mac: no missed seconds, ticks still caught 3-5 us
       after the second, 0.2% of a core instead of 100%, and an
       already-passed tick returns at once.
-      - [ ] Deploy: `git pull` on the Pi,
-            `sudo systemctl restart myscript.service`, then check that
-            the clock ticks normally and `uptime`'s load average falls
-            from ~1.0 towards 0 over a few minutes.
+      - [x] Deployed on the Pi 2026-11-09: load average 0.12 / 0.08 /
+            0.10 (1 / 5 / 15 min), down from a constant ~1.0.
 
 - [x] Clock an hour slow from Nov 1, 2026 (fixed 2026-11-04). Alberta
       stopped changing clocks: America/Edmonton stays on UTC-6 ("CST")
