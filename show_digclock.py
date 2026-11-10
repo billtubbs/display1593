@@ -61,6 +61,7 @@ import argparse
 import json
 import logging
 import threading
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -180,7 +181,7 @@ def push_changes(dis, smem, smem_prev, initialized, colour):
 
 class SecondTicker:
     """
-    Tracks wall-clock seconds and lets callers busy-wait for the next tick.
+    Tracks wall-clock seconds and lets callers wait for the next tick.
 
     Centralizing this here means every part of the script that needs to
     know "has the next second arrived yet" advances off the same clock,
@@ -190,11 +191,21 @@ class SecondTicker:
     def __init__(self):
         self.time = datetime.now().time()
 
-    def wait_for_tick(self):
+    def wait_for_tick(self, spin=0.005):
         """
-        Busy-wait until the wall-clock second changes, then return the new
-        time.
+        Wait until the wall-clock second changes, then return the new time.
+
+        Sleeps until `spin` seconds before the next second, then checks
+        the time in a tight loop for the last few milliseconds, so the tick
+        is still caught within microseconds (callers show() right after
+        it) while using almost no CPU. A pure busy-wait kept one core at
+        100% all the time. If the next second is less than `spin` away, or
+        has already passed, it doesn't sleep.
         """
+        now = datetime.now()
+        to_next = 1.0 - now.microsecond / 1e6
+        if now.second == self.time.second and to_next > spin:
+            time.sleep(to_next - spin)
         while datetime.now().time().second == self.time.second:
             pass
         self.time = datetime.now().time()

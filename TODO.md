@@ -3,8 +3,9 @@
 Project-level tasks that don't belong to one specific line of code (see also
 inline `# TODO:` comments in the source for smaller, file-local items).
 
-- [ ] Pi keeps dropping off the network: **cause found, fix applied
-      2026-11-04, now verifying.** Investigation started 2026-10-21:
+- [x] Pi keeps dropping off the network: **fixed 2026-11-04,
+      verified 2026-11-09** (no drops in 5 days, where the old pattern
+      would have dropped ~Nov 5 21:00 and ~Nov 7 18:00). Investigation started 2026-10-21:
       the Pi couldn't be reached by ssh/ping at 192.168.1.72 although
       the router's device list still showed it connected, and the clock
       (`--temp-colour`) showed a stale temperature colour (the reading
@@ -66,14 +67,17 @@ inline `# TODO:` comments in the source for smaller, file-local items).
             ssh latency: ping avg 18 -> 6.6 ms, max 65 -> 22 ms.
 
       **Next:**
-      - [ ] Verify: without the fix, the next drop would have come ~24 h
-            after the new lease of 2026-11-04 ~21:00, i.e. ~Nov 5
-            21:00 (Alberta time). After that, and again after 2-3 days, check that
-            there are no `conflict detected` / `error -99` lines and no
-            new `update failed`:
+      - [x] Verified 2026-11-09 (uptime 4 d 23 h, no reboots since
+            the fix; settings still `0` / `disable`): the journal shows
+            only `new lease` renewals, exactly every 12 h (09:00:47 and
+            21:00:47) from Nov 4 21:00 to Nov 9 09:00, with no
+            `conflict detected`, no `error -99` and no connection
+            failures; no weather-fetch failures in the current clock
+            logs, and fetches working at 19:06 and 20:06 on Nov 9.
+            Check commands, if it's ever needed again:
             `journalctl -b | grep -E "conflict detected|error -99|new lease"`
             and `grep -a "update failed" show_digclock.log | tail -3`.
-      - [ ] If it still drops: turn on NetworkManager debug logging
+      - [ ] Only if it ever drops again: turn on NetworkManager debug logging
             (`sudo nmcli general logging level DEBUG domains DHCP4,IP4`)
             to see where the zero-MAC ARP replies come from (suspects:
             the router, or the brcmfmac firmware's ARP offload).
@@ -89,10 +93,27 @@ inline `# TODO:` comments in the source for smaller, file-local items).
             stale reading doesn't look like a valid colour.
       - [ ] README's systemd unit example omits `--temp-colour`; update
             it to match the Pi's actual unit.
-      - [ ] After the network fix is verified: `sudo apt full-upgrade`
-            and reboot (146 packages were pending on 2026-11-04, likely
-            including a kernel, Wi-Fi firmware and NetworkManager).
-            Waiting so the upgrade doesn't muddy the verification.
+      - [x] `sudo apt full-upgrade` and reboot, 2026-11-09 (146
+            packages had been pending since at least 2026-11-04, held
+            back until the fix was verified). After the reboot: settings
+            still `0` / `disable`, only `lo` and `wlan0`, clock service
+            running with `--temp-colour`.
+      - [ ] In a few days, check that the renewals are still clean after
+            the upgrade (new kernel / firmware / NetworkManager), with
+            the check commands above.
+
+- [ ] `show_digclock.py`: `SecondTicker.wait_for_tick()` busy-waited
+      (`while datetime.now().time().second == ...: pass`), keeping one
+      CPU core at 100% all the time (load average a constant 1.00,
+      seen 2026-11-09). **Changed 2026-11-09:** it now sleeps until 5 ms
+      before the next second, then checks in a tight loop for the rest.
+      Tested on the Mac: no missed seconds, ticks still caught 3-5 us
+      after the second, 0.2% of a core instead of 100%, and an
+      already-passed tick returns at once.
+      - [ ] Deploy: `git pull` on the Pi,
+            `sudo systemctl restart myscript.service`, then check that
+            the clock ticks normally and `uptime`'s load average falls
+            from ~1.0 towards 0 over a few minutes.
 
 - [x] Clock an hour slow from Nov 1, 2026 (fixed 2026-11-04). Alberta
       stopped changing clocks: America/Edmonton stays on UTC-6 ("CST")
