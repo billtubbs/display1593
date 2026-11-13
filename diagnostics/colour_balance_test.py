@@ -2,13 +2,11 @@
 """
 Interactive colour balance and intensity linearity test.
 
-Port of the 2016 `coltest.py` (display1593-old repo). Builds an
-intensity scale per colour channel (N_LEVELS levels, each of the form
-base**x - 1 with x from 0 to X_MAX), equalised across channels at the
-lowest levels so dim colours don't shift hue, and displays it as a
-chart: 8 vertical bars (white, black, red, yellow, green, cyan, blue,
-magenta), each with N_LEVELS rows from dimmest (top) to brightest
-(bottom). Adjust the scales until the colours look equally bright
+Port of the 2016 `coltest.py` (display1593-old repo). Shows the
+intensity scales from `display1593.colour_correction` (N_LEVELS levels
+per colour channel, see that module) as a chart: 8 vertical bars
+(white, black, red, yellow, green, cyan, blue, magenta), each with
+N_LEVELS rows from dimmest (top) to brightest (bottom). Adjust the scales until the colours look equally bright
 across each row and the steps down each bar look even.
 
 The 2016 calibration (saved as data/rgb_scales.npy in the old repo)
@@ -16,9 +14,11 @@ came out with green about 1.05x red and blue about 1.7x red, but only
 covered PWM values up to about 46-80. show_digclock.py's digits go up
 to 127 in the daytime (BCYCLE divisor 2) and down to 28 at night
 (divisor 9), so the brightness settings here span roughly that range.
+Calibration results go into `display1593.colour_correction`
+(SCALE_PARAMS, DEFAULT_GAINS), which display scripts use.
 
 Commands (typed at the prompt, then Enter):
-  0-7          brightness setting (peak red value ~ 46 * 1.15**n)
+  0-7          brightness setting (peak red ~ 41 * 1.15**n)
   r|g|b GAIN   set a channel's gain (default DEFAULT_GAINS), e.g. "g 0.8"
   s            save the current scale to a CSV file
   q            quit (clears the display)
@@ -32,31 +32,15 @@ import argparse
 
 import numpy as np
 
-N_LEVELS = 32
+from display1593.colour_correction import (
+    CHANNELS,
+    DEFAULT_GAINS,
+    N_BRIGHTNESS,
+    N_LEVELS,
+    SCALE_PARAMS,
+    make_rgb_scales,
+)
 
-# Per-channel scale constants (base, x_max): level i of channel c is
-# base**x - 1, with x = linspace(0, x_max, N_LEVELS)[i]. Values from
-# the 2016 coltest.py.
-SCALE_PARAMS = {
-    "r": (2.5, 4.2),
-    "g": (2.72, 3.9),
-    "b": (2.85, 4.2),
-}
-
-# Low levels are set to the mean of the three channels (same grey for
-# all) while that mean is <= LOW_LEVEL_MEAN and level <= LOW_LEVEL_MAX.
-LOW_LEVEL_MEAN = 2.5
-LOW_LEVEL_MAX = 10
-
-# Default per-channel gains, applied after the low-level equalisation.
-# In a 2026-11 retest of the 2016 scales, red's brightest levels looked
-# slightly brighter than green and blue (the rest looked balanced); a
-# red gain of 0.9-0.95 fixed it, with 0.9 better at brightness 6-7.
-DEFAULT_GAINS = {"r": 0.9, "g": 1.0, "b": 1.0}
-
-# Brightness setting n multiplies the scales by BRIGHTNESS_STEP**n.
-N_BRIGHTNESS = 8
-BRIGHTNESS_STEP = 1.15
 DEFAULT_BRIGHTNESS = 2
 
 # Bar colours, left to right.
@@ -75,32 +59,6 @@ COL_BARS = np.array(
 
 # Display coordinate range (centres_x, centres_y are within 0-2000).
 DISPLAY_SIZE = 2000.0
-
-CHANNELS = "rgb"
-
-
-def make_rgb_scales(gains=None, brightness=0):
-    """
-    (N_LEVELS, 3) float array of intensity values for each level and
-    channel, at brightness setting `brightness`, with per-channel
-    `gains` (three factors, default from DEFAULT_GAINS) applied after
-    the low-level equalisation.
-    """
-    if gains is None:
-        gains = [DEFAULT_GAINS[ch] for ch in CHANNELS]
-    scales = np.zeros((N_LEVELS, 3))
-    for c, ch in enumerate(CHANNELS):
-        base, x_max = SCALE_PARAMS[ch]
-        scales[:, c] = base ** np.linspace(0, x_max, N_LEVELS) - 1
-
-    # Make the channels identical at low intensity levels.
-    for i, rgb in enumerate(scales):
-        avg = rgb.mean()
-        if avg > LOW_LEVEL_MEAN or i > LOW_LEVEL_MAX:
-            break
-        scales[i, :] = avg
-
-    return scales * np.asarray(gains) * BRIGHTNESS_STEP**brightness
 
 
 def to_uint8(scales):

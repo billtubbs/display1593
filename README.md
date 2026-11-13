@@ -53,7 +53,7 @@ with Display1593() as dis:
 - `fluidsim/` - buoyancy-driven fluid flow simulation on the display
 - `diagnostics/` - hardware, protocol and timing test scripts (run from
   the repo root), e.g. `check_led_neighbours.py`,
-  `async_display_smoke_test.py`,
+  `colour_balance_test.py`, `async_display_smoke_test.py`,
   `compare_modes.py`, `serial_worker_timing.py`, `comm_led_test.py`,
   `frame_display_speed_test.py`, `led_command_tests.py`
 
@@ -361,6 +361,77 @@ every frame appears one frame earlier and `flush()` does nothing.
   firmware change will send it to TEENSY1 only, which will trigger
   TEENSY2 over the GPIO sync wire between the boards (see the TODOs in
   `display1593.py`).
+
+## Colour correction and brightness
+
+The LEDs' perceived brightness isn't linear in their 0-255 PWM values,
+and red, green and blue aren't equally bright at the same value. The
+display is for indoor use, so scripts normally use only a fraction of
+the PWM range (roughly 0-64, a bit more for something with few lit
+LEDs like the clock).
+
+`display1593.colour_correction` maps a requested intensity per channel
+(0-255, in perceived terms: equal steps look evenly spaced and equal
+values look equally bright across colours) to PWM values, at one of 8
+calibrated brightness settings (0-7):
+
+```python
+from display1593.colour_correction import apply_colour_lut, colour_lut
+
+lut = colour_lut(brightness=3)
+dis.set_all_leds(apply_colour_lut(rgb, lut))  # rgb: (1593, 3) uint8
+```
+
+Peak PWM values range from about 41 (red), 49 (green), 80 (blue) at
+setting 0 to 110, 129, 214 at setting 7 (each step is x1.15). Settings
+outside 0-7, including negative and fractional ones, extrapolate the
+same scales. Using it is optional: a script can always send PWM values
+directly.
+
+The scales come from a by-eye calibration on the display, first done
+in 2016 (`coltest.py` in the old repo) and re-checked in November 2026
+with `diagnostics/colour_balance_test.py`, which shows 8 colour bars x
+32 levels at any brightness setting. The 2016 scales still looked
+balanced, except that red's brightest levels were slightly too bright;
+a red gain of 0.9 (`DEFAULT_GAINS`) fixed that.
+
+`show_digclock.py` always uses it, so every digit colour looks equally
+bright. Its day/night cycle (`BCYCLE`) is now a brightness setting per
+hour: 7 in the middle of the day, 5, 1, then -2 and -3 at night (below
+the calibrated range). These were chosen (November 2026) to give peak
+red values (110, 83, 48, 31, 27) close to the clock's earlier PWM
+divisor cycle (127, 85, 51, 31, 28), and haven't been tuned by eye yet.
+`--brightness N` fixes the setting for every hour instead.
+
+## Light sensor (not supported yet)
+
+The display has a photoresistor facing into the room, away from the
+screen, so it measures the room's light level rather than the
+display's. The plan is to map its reading to the brightness settings
+above, so scripts can adjust their brightness automatically.
+
+The original (2016-2019) firmware,
+`led-display-project/serial_read_1593/serial_read_1593.ino`, read it
+on TEENSY1 only, with `analogRead(PHOTORES)`, `PHOTORES = 3` (analog
+input A3, pin 17 on a Teensy 3.1). The protocol was unframed: the host
+sent the single byte `B`, and the board replied with 2 bytes, the
+10-bit reading (0-1023, higher = brighter) big-endian; TEENSY2 replied
+`0x00 0x00`. The old driver's `Display1593.getBrightness()` sent `B`
+and returned `int.from_bytes(ser.read(2), "big")`.
+
+In October 2019, logged once a second (`lightlevels.py`, analysed in
+the old repo's `Look-at-light-sensor-data.ipynb`), readings ranged
+from about 2 to 160 (smoothed): about 3.6 at night with the room
+lights off (3.7 was taken as the "dark" threshold), hourly means of
+about 15 at 8 am and 94 at 9 am. So indoors, the sensor uses only the
+bottom of its range.
+
+The current firmware (`CommLEDTest/src/main.cpp`) doesn't support it
+yet: `led_commands.md` in `ser-comm-py` reserves the command `GB`
+("Get the brightness reading from photoresistor"), with no response
+format defined, but `main.cpp` has no `GB` handler and no longer
+defines `PHOTORES`, so `GB` gets the "Invalid command" debug message.
+See TODO.md for the planned changes.
 
 ## Current development focus
 

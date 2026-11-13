@@ -112,6 +112,18 @@ Key pieces `display1593.py` relies on:
   warnings, and spare time per frame from `dis.show_slack`. Used by
   `play_frames.py` and `fireplace/play_fire_frames.py`; tested with a
   fake display in `tests/test_playback.py`.
+- **`colour_correction.py`** - optional colour balance/intensity
+  correction: `colour_lut(brightness, gains=None)` builds a (256, 3)
+  uint8 table from requested (perceived) intensity 0-255 to PWM value,
+  `apply_colour_lut(rgb, lut)` applies it. Brightness settings 0-7 are
+  the calibrated range (x1.15 per step; others extrapolate). Scales are
+  the 2016 by-eye calibration (`SCALE_PARAMS`) with a 0.9 red gain
+  (`DEFAULT_GAINS`) from the 2026-11 retest with
+  `diagnostics/colour_balance_test.py`, which imports its constants
+  from here. numpy only. Tested against the 2016 values in
+  `tests/test_colour_correction.py`. Scripts can always send PWM values
+  directly instead. Automatic brightness from the room light sensor is
+  planned but needs firmware work first (README "Light sensor", TODO).
 - **`lock.py`** - `DisplayLock`, a `flock()`-based, wait-then-timeout,
   cross-process exclusive lock (`/tmp/display1593.lock` by default) so two
   scripts can't drive the serial connections at once; `Display1593.connect()`
@@ -145,7 +157,8 @@ Key pieces `display1593.py` relies on:
 
 - **`show_digclock.py`** - the clock display driver: owns hardware
   connection, timing (`SecondTicker`, one tick per wall-clock second),
-  day/night brightness (`BCYCLE`, keyed by hour), and compositing digit/flash
+  day/night brightness (`BCYCLE`, colour correction brightness setting
+  keyed by hour), and compositing digit/flash
   brightness into a persistent `smem` buffer, diffed against `smem_prev` to
   push only changed LEDs (`push_changes`). Rendering itself is delegated to a
   clock face object (see `digclock1.py`). Staging (`set_leds`) happens ahead
@@ -156,12 +169,21 @@ Key pieces `display1593.py` relies on:
   Canada citypage API, location `ab-52`, polled a minute after each
   hourly observation is due by an `OutdoorTemperature` daemon thread),
   in piecewise-constant 10-degree bands (`T_COLOUR_BANDS`): cyan below
-  -10 C, blue, green, red, yellow from 20 C. Colour components are 0/1
-  so `BCYCLE` dimming applies unchanged and red matches the default.
+  -10 C, blue, green, red, yellow from 20 C. Colour components are 0/1,
+  so every colour gets the same requested intensity.
   Continuous colormaps (plasma, inferno, a constant-luminance
   blue-magenta-red blend) were tried first and dropped: odd colours on
   the LEDs and too little contrast for small temperature changes.
-  Re-evaluated at each minute rollover.
+  Re-evaluated at each minute rollover. Digit intensities always go
+  through `colour_correction` (`hour_lut()`): the face renders at full
+  intensity (`FACE_BNESS = 1`) and the dimming comes from `BCYCLE`'s
+  brightness setting for the hour (7 by day down to -3 at night, chosen
+  2026-11 to match the peak red PWM of the earlier divisor cycle: 110,
+  83, 48, 31, 27 vs. 127, 85, 51, 31, 28; not yet tuned by eye), or a
+  fixed `--brightness N`. `paint()` saturates at 255 where digits
+  overlap. The face's shading (`digdata.pickle`) was tuned in raw PWM
+  values, so partly lit edge LEDs come out much dimmer than before
+  (median lit red ~14 vs. 65 at midday).
 - **`show_image.py`** - crops/resizes and displays a single image file.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;
@@ -183,10 +205,10 @@ the repo root (log files are written to the current directory).
 
 - **`colour_balance_test.py`** - interactive colour balance/intensity
   linearity chart (8 colour bars x 32 levels), port of the 2016
-  `coltest.py` from the old repo; its default scales reproduce that
-  calibration (`rgb_scales.npy`) exactly, except that red is scaled by
-  0.9 (`DEFAULT_GAINS`), after a 2026-11 retest found red's brightest
-  levels slightly too bright. Adjust brightness and per-channel gains at
+  `coltest.py` from the old repo, showing `display1593.colour_correction`'s
+  scales: that calibration (`rgb_scales.npy`) with red scaled by 0.9
+  (`DEFAULT_GAINS`), after a 2026-11 retest found red's brightest levels
+  slightly too bright (`r 1` at the prompt gives the 2016 values). Adjust brightness and per-channel gains at
   a prompt, save the scale to CSV. `--dry-run` without hardware.
 - **`check_led_neighbours.py`** - interactive terminal tool to visually
   verify the nearest-neighbour data against the physical display (lights one

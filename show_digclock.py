@@ -55,6 +55,16 @@ colour is only re-evaluated at a minute rollover, when digits are being
 staged anyway; if it changed, every lit LED is re-staged. Until a
 temperature has been fetched successfully the digits are red; after
 that, a failed update just keeps the last known value.
+
+Brightness
+----------
+Digit intensities are requested in perceived terms and mapped to PWM
+values by `display1593.colour_correction`, so every digit colour looks
+equally bright. The face renders at full intensity (`FACE_BNESS`); the
+day/night dimming comes from the hourly colour correction brightness
+setting in `BCYCLE`, or a fixed one with `--brightness`. The face's
+per-LED shading was tuned in raw PWM values, so partly lit edge LEDs
+come out dimmer than they did before the correction.
 """
 
 import argparse
@@ -69,6 +79,7 @@ from pathlib import Path
 import numpy as np
 
 from display1593 import Display1593
+from display1593.colour_correction import apply_colour_lut, colour_lut
 from display1593.digclock1 import SevenSegmentClockFace
 from display1593.logging_utils import configure_root_logging
 
@@ -98,8 +109,8 @@ WEATHER_TIMEOUT_SECS = 10
 # T_COLOUR_ABOVE. A continuous blue-magenta-red scale was tried first,
 # but its colours (e.g. magenta) didn't look good and changes of a few
 # degrees were too small to notice. Colour components are 0 or 1, so
-# each lit channel gets exactly the BCYCLE-scaled brightness, as plain
-# red always did.
+# each lit channel gets the same requested intensity, which the colour
+# correction makes equally bright for every colour.
 T_COLOUR_BANDS = [
     (-10.0, np.array([0.0, 1.0, 1.0])),  # cyan
     (0.0, np.array([0.0, 0.0, 1.0])),  # blue
@@ -111,33 +122,42 @@ T_COLOUR_ABOVE = np.array([1.0, 1.0, 0.0])  # yellow
 # has been fetched.
 DEFAULT_COLOUR = np.array([1.0, 0.0, 0.0])
 
-# Brightness divisor by hour-of-day (day/night dimming cycle).
+# Brightness setting (display1593.colour_correction) by hour of day:
+# the day/night dimming cycle. Settings 0-7 are the calibrated range;
+# the night settings are below it. Chosen (2026-11) so the brightest
+# red digit LEDs are about as bright as with the earlier cycle of PWM
+# divisors (2, 3, 5, 8, 9 -> settings 7, 5, 1, -2, -3: peak red PWM
+# 110, 83, 48, 31, 27 vs. 127, 85, 51, 31, 28); not yet tuned by eye.
 BCYCLE = {
-    0: 9,
-    1: 9,
-    2: 9,
-    3: 9,
-    4: 9,
-    5: 9,
-    6: 8,
-    7: 5,
-    8: 3,
-    9: 2,
-    10: 2,
-    11: 2,
-    12: 2,
-    13: 2,
-    14: 3,
-    15: 3,
-    16: 3,
-    17: 5,
-    18: 5,
-    19: 8,
-    20: 9,
-    21: 9,
-    22: 9,
-    23: 9,
+    0: -3,
+    1: -3,
+    2: -3,
+    3: -3,
+    4: -3,
+    5: -3,
+    6: -2,
+    7: 1,
+    8: 5,
+    9: 7,
+    10: 7,
+    11: 7,
+    12: 7,
+    13: 7,
+    14: 5,
+    15: 5,
+    16: 5,
+    17: 1,
+    18: 1,
+    19: -2,
+    20: -3,
+    21: -3,
+    22: -3,
+    23: -3,
 }
+
+# The clock face renders at full intensity (brightness divisor 1); the
+# dimming comes from the colour correction brightness setting.
+FACE_BNESS = 1
 
 
 def paint(smem, idx, vals):
@@ -147,7 +167,8 @@ def paint(smem, idx, vals):
     more than one digit position or by a digit and the flash element.
     """
     if idx.size:
-        smem[idx] += vals.astype(smem.dtype)
+        total = smem[idx].astype(np.uint16) + vals
+        smem[idx] = np.minimum(total, 255).astype(smem.dtype)
 
 
 def clear_digit(smem, clear_idx):
@@ -156,7 +177,7 @@ def clear_digit(smem, clear_idx):
         smem[clear_idx] = 0
 
 
-def push_changes(dis, smem, smem_prev, initialized, colour):
+def push_changes(dis, smem, smem_prev, initialized, colour, lut=None):
     """
     Stage any LEDs whose value changed since the last push (or that have
     never been pushed at all).
@@ -169,11 +190,12 @@ def push_changes(dis, smem, smem_prev, initialized, colour):
     possible.
 
     Each LED's RGB value is its smem brightness times `colour` (three
-    floats, 0-1).
+    floats, 0-1), passed through the colour correction table `lut` if
+    given (see colour_rgb).
     """
     changed = np.nonzero((smem != smem_prev) | ~initialized)[0]
     if changed.size > 0:
-        rgb_array = colour_rgb(smem[changed], colour)
+        rgb_array = colour_rgb(smem[changed], colour, lut)
         dis.set_leds(changed, rgb_array)
         smem_prev[changed] = smem[changed]
         initialized[changed] = True
@@ -291,18 +313,24 @@ def temperature_colour(temp):
     return T_COLOUR_ABOVE
 
 
-def colour_rgb(vals, colour):
-    """(n, 3) uint8 RGB array: brightness values `vals` times `colour`."""
-    rgb = np.rint(np.outer(vals, colour))
-    return np.clip(rgb, 0, 255).astype("uint8")
+def colour_rgb(vals, colour, lut=None):
+    """
+    (n, 3) uint8 RGB array: brightness values `vals` times `colour`,
+    then, if `lut` (from colour_correction.colour_lut) is given, mapped
+    from perceived intensity to PWM values.
+    """
+    rgb = np.clip(np.rint(np.outer(vals, colour)), 0, 255).astype("uint8")
+    if lut is not None:
+        rgb = apply_colour_lut(rgb, lut)
+    return rgb
 
 
-def flash_rgb(vals, second, colour):
+def flash_rgb(vals, second, colour, lut=None):
     """
     RGB values for the flash element for a given wall-clock second
     (on/off toggle).
     """
-    return colour_rgb((second % 2) * vals, colour)
+    return colour_rgb((second % 2) * vals, colour, lut)
 
 
 def hour_digits(hr):
@@ -315,7 +343,18 @@ def minute_digits(m):
     return m // 10, m % 10
 
 
-def main(temp_colour=False):
+def hour_lut(hr, brightness=None):
+    """
+    Colour correction table for hour `hr`, at brightness setting
+    `brightness` if given (fixed for every hour), otherwise BCYCLE's
+    setting for the hour.
+    """
+    if brightness is None:
+        brightness = BCYCLE[hr % 24]
+    return colour_lut(brightness)
+
+
+def main(temp_colour=False, brightness=None):
     face = SevenSegmentClockFace()
 
     smem = np.zeros(N_LEDS, dtype="uint8")
@@ -338,17 +377,17 @@ def main(temp_colour=False):
         d4, d3 = hour_digits(hr)
         d2, d1 = minute_digits(m)
 
-        bness = BCYCLE[hr % 24]
+        lut = hour_lut(hr, brightness)
 
         # Initial paint of all four digits (positions 0-3, left to right).
         for position, value in enumerate((d4, d3, d2, d1)):
-            paint(smem, *face.digit_leds(position, value, bness))
+            paint(smem, *face.digit_leds(position, value, FACE_BNESS))
 
-        flash_idx, flash_vals = face.flash_leds(bness)
+        flash_idx, flash_vals = face.flash_leds(FACE_BNESS)
 
         # First frame is a special case: there's no earlier tick to stage
         # ahead of, since we needed *this* tick to know what to paint.
-        push_changes(dis, smem, smem_prev, initialized, colour)
+        push_changes(dis, smem, smem_prev, initialized, colour, lut)
         dis.show()
         logger.info("%2d:%2d", hr, m)
 
@@ -363,26 +402,28 @@ def main(temp_colour=False):
                     # the minute digits (repainted below) also get the new
                     # hour's brightness rather than keeping the old one
                     # until they next change.
-                    bness = BCYCLE[hr % 24]
-                    flash_idx, flash_vals = face.flash_leds(bness)
+                    lut = hour_lut(hr, brightness)
+                    # The brightness is in the table, not smem, so
+                    # re-stage every lit LED.
+                    initialized[smem > 0] = False
 
                 d1 = m % 10
                 clear_digit(smem, face.clear_indices(3))
-                paint(smem, *face.digit_leds(3, d1, bness))
+                paint(smem, *face.digit_leds(3, d1, FACE_BNESS))
 
                 if d1 == 0:
                     d2 = m // 10
                     clear_digit(smem, face.clear_indices(2))
-                    paint(smem, *face.digit_leds(2, d2, bness))
+                    paint(smem, *face.digit_leds(2, d2, FACE_BNESS))
 
                 if m == 0:
                     d4, d3 = hour_digits(hr)
 
                     clear_digit(smem, face.clear_indices(1))
-                    paint(smem, *face.digit_leds(1, d3, bness))
+                    paint(smem, *face.digit_leds(1, d3, FACE_BNESS))
 
                     clear_digit(smem, face.clear_indices(0))
-                    paint(smem, *face.digit_leds(0, d4, bness))
+                    paint(smem, *face.digit_leds(0, d4, FACE_BNESS))
 
                 # If the outdoor temperature changed the colour, re-stage
                 # every lit LED, not just the ones whose brightness changed.
@@ -394,13 +435,15 @@ def main(temp_colour=False):
 
                 # Stage the new digits now, ahead of the tick that will
                 # make them current.
-                push_changes(dis, smem, smem_prev, initialized, colour)
+                push_changes(dis, smem, smem_prev, initialized, colour, lut)
 
             # Stage the flash element's state for the second we're about
             # to enter, then wait for it to actually arrive before showing
             # anything - a minute rollover's digit change and flash toggle
             # land in the same show().
-            dis.set_leds(flash_idx, flash_rgb(flash_vals, next_second, colour))
+            dis.set_leds(
+                flash_idx, flash_rgb(flash_vals, next_second, colour, lut)
+            )
 
             t = ticker.wait_for_tick()
             dis.show()
@@ -417,7 +460,18 @@ if __name__ == "__main__":
         help="colour the digits by the current outdoor temperature "
         "(Calgary, from Environment Canada) instead of plain red",
     )
+    parser.add_argument(
+        "--brightness",
+        type=float,
+        default=None,
+        help="fixed brightness setting for every hour, instead of the "
+        "BCYCLE day/night cycle (0-7 is the calibrated range; below 0 is "
+        "dimmer)",
+    )
     args = parser.parse_args()
     logger.info("=" * 35)
     logger.info("%s started.", __file__)
-    main(temp_colour=args.temp_colour)
+    main(
+        temp_colour=args.temp_colour,
+        brightness=args.brightness,
+    )

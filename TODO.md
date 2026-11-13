@@ -125,6 +125,30 @@ inline `# TODO:` comments in the source for smaller, file-local items).
       `CST ... gmtoff=-21600`), then restart the clock service (a running
       Python process keeps the time zone it started with). The time zone
       stays America/Edmonton.
+- [ ] Light sensor: read the room's light level from the photoresistor
+      on TEENSY1 (see README "Light sensor (not supported yet)" for the
+      old protocol and data). Firmware (`CommLEDTest/src/main.cpp`,
+      TEENSY1 only): restore `#define PHOTORES 3`, add a `GB` handler
+      that sends `analogRead(PHOTORES)` as 2 big-endian bytes after the
+      usual 6-byte acknowledgement (8 bytes in all; 0 on TEENSY2), and
+      document the response format in `ser-comm-py`'s
+      `led_commands.md`. Driver: `Display1593.get_light_level()` (send
+      `GB` to board 0, check the acknowledgement, return 0-1023;
+      synchronous mode only to start with, since in pipelined mode the
+      worker threads own the serial ports), with a fake-serial test,
+      and a `diagnostics/` script that logs readings to CSV like the old
+      `lightlevels.py`.
+- [ ] Automatic brightness: map the light sensor reading (smoothed,
+      e.g. EWMA) to a `colour_correction` brightness setting, for any
+      script to use optionally; then use it in `show_digclock.py`
+      instead of the hourly `BCYCLE` settings. Needs the light sensor
+      item above first. The 2019 data suggest a log-scale mapping
+      (readings ~3.7 dark to ~160).
+- [ ] Firmware: the `L1` (set one LED) handler in
+      `CommLEDTest/src/main.cpp` has `leds.setPixel(...)` commented out
+      ("Temporarily commented out to test delay"), so if that build is
+      on the boards, `Display1593.set_led()` does nothing. `set_leds()`
+      (`LN`) is unaffected. Check what's flashed, and restore it.
 - [ ] Wire up the remaining firmware commands documented in
       `led_commands.md` (in the sibling `ser-comm-py` repo) that
       `Display1593` doesn't expose yet: `LB` (set brightness), `G1` (get LED
