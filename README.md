@@ -43,7 +43,8 @@ with Display1593() as dis:
 ## Current projects in this repository
 
 - `show_digclock.py` - displays a digital clock on the LED display
-- `show_image.py` - displays a single image file on the LED display
+- `show_image.py` - displays a single image file on the LED display,
+  colour corrected: `python show_image.py images/monalisa.png --brightness 2`
 - `play_frames.py` - plays a precomputed LED frame sequence (an `.npz`
   file, e.g. made from a video with
   [gen-video-frames](https://github.com/billtubbs/gen-video-frames)) in a
@@ -403,6 +404,11 @@ Light from neighbouring LEDs adds up linearly on the screen, so an LED
 half covered by a shape should give half the light. Putting coverage
 through the table (perceived intensity) gives far less light at the
 edges: the clock's digits looked thin, with gaps between segments.
+
+Images work the same way: each LED's colour is the average of the
+image pixels it covers, so `show_image.py` puts each pixel through the
+table first and then averages the PWM values
+(`image_conversion.convert_image(image, lut)`).
 
 The scales come from a by-eye calibration on the display, first done
 in 2016 (`coltest.py` in the old repo) and re-checked in November 2026

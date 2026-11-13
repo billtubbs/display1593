@@ -106,3 +106,28 @@ def test_apply_coverage_per_led_colours():
     np.testing.assert_array_equal(
         apply_coverage(pwm, [0.5, 1.0]), [[50, 0, 0], [0, 100, 0]]
     )
+
+
+def test_convert_image_corrects_pixels_then_averages():
+    from display1593.image_conversion import convert_image
+
+    lut = colour_lut(3)
+    # Uniform image: every LED gets the table value for that colour.
+    uniform = np.full((256, 256, 3), [255, 128, 0], dtype=np.uint8)
+    expected = np.tile(lut[[255, 128, 0], [0, 1, 2]], (1593, 1))
+    np.testing.assert_array_equal(convert_image(uniform, lut), expected)
+    # Fine black/white stripes: each LED averages PWM values (light),
+    # which is more than the PWM value of the average pixel value.
+    stripes = np.zeros((256, 256, 3), dtype=np.uint8)
+    stripes[:, ::2] = 255
+    out = convert_image(stripes, lut).astype(int)
+    assert np.all(out[:, 0] > lut[128, 0])
+    assert np.all(out[:, 0] <= lut[255, 0])
+
+
+def test_convert_image_without_lut_unchanged():
+    from display1593.image_conversion import convert_image
+
+    uniform = np.full((256, 256, 3), [255, 128, 0], dtype=np.uint8)
+    out = convert_image(uniform)
+    np.testing.assert_array_equal(out, np.tile([255, 128, 0], (1593, 1)))

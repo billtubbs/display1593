@@ -34,7 +34,7 @@ file to invoke manually beyond `ruff format` / `ruff check`.
 
 Entry-point scripts that talk to the real hardware are run directly, e.g.
 `python show_digclock.py`, `python schelling.py --n-neighbours 6`,
-`python show_image.py images/monalisa.png 8`, `python fluidsim/play_fluidsim.py`.
+`python show_image.py images/monalisa.png --brightness 2`, `python fluidsim/play_fluidsim.py`.
 See README.md for running `show_digclock.py` as a systemd service on the Pi.
 
 ## Project todos
@@ -189,7 +189,13 @@ Key pieces `display1593.py` relies on:
   `digdata.pickle`) scale those PWM values linearly (`colour_rgb()`,
   via `apply_coverage`). `paint()` saturates at 255 where digits
   overlap, so overlapping LEDs no longer exceed the peak.
-- **`show_image.py`** - crops/resizes and displays a single image file.
+- **`show_image.py`** - crops/resizes and displays a single image file,
+  colour corrected at `--brightness` (default 0, about as bright as the
+  old default `--dimness 8`, which still gives the older uncorrected
+  mapping, mean pixel squared / (256 * dimness)). Corrected: each pixel
+  goes through `colour_correction`'s table, then the PWM values are
+  averaged over each LED's area (`convert_image(..., lut=...)`), the
+  image equivalent of linear coverage.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;
   needn't match the source video - lower plays it slower), pipelined

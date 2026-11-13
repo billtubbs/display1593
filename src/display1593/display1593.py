@@ -16,6 +16,7 @@ from serial_comm import (
     send_data_to_arduino,
 )
 
+from display1593.colour_correction import colour_lut
 from display1593.data.ledArray_data_1593 import centres_x, centres_y
 from display1593.image_conversion import convert_image as _convert_image
 from display1593.image_conversion import prepare_image as _prepare_image
@@ -980,14 +981,31 @@ class Display1593:
         """Crop image to a square and resize it for convert_image()."""
         return _prepare_image(image, size=size)
 
-    def convert_image(self, image_array):
-        """Convert a 256x256 RGB image array to 1593 RGB LED intensities."""
-        return _convert_image(image_array)
+    def convert_image(self, image_array, lut=None):
+        """
+        Convert a 256x256 RGB image array to 1593 RGB LED intensities
+        (see image_conversion.convert_image; `lut` applies colour
+        correction to each pixel before averaging).
+        """
+        return _convert_image(image_array, lut=lut)
 
-    def show_image(self, filename, dimness=8):
+    def show_image(self, filename, dimness=8, brightness=None):
+        """
+        Stage an image file on all LEDs (call show() to display it).
+
+        With `brightness` (a colour_correction brightness setting, 0-7
+        calibrated), each pixel goes through the colour correction and
+        the resulting PWM values are averaged over each LED's area.
+        Without it, the older uncorrected mapping is used: mean pixel
+        value squared / (256 * `dimness`).
+        """
         logger.debug("Method show_image.")
-        image = Image.open(filename)
-        z = self.convert_image(self.prepare_image(image))
+        image = self.prepare_image(Image.open(filename))
+        if brightness is not None:
+            lut = colour_lut(brightness)
+            self.set_all_leds(self.convert_image(image, lut=lut))
+            return
+        z = self.convert_image(image)
         self.set_all_leds(z**2 / (256 * dimness))
 
     def show(self, t=None):

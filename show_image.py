@@ -9,16 +9,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", help="path to the image file")
     parser.add_argument(
-        "dimness",
-        nargs="?",
+        "--brightness",
         type=float,
-        default=8,
-        help="brightness divisor - higher is dimmer (default: 8)",
+        default=0,
+        help="colour correction brightness setting (0-7 is the "
+        "calibrated range, x1.15 per step; below 0 is dimmer; "
+        "default: %(default)s)",
+    )
+    parser.add_argument(
+        "--dimness",
+        type=float,
+        default=None,
+        help="use the older uncorrected mapping instead (mean pixel "
+        "value squared / (256 * DIMNESS); 8 was the old default)",
     )
     args = parser.parse_args()
 
     with Display1593() as dis:
-        dis.show_image(args.path, dimness=args.dimness)
+        if args.dimness is not None:
+            dis.show_image(args.path, dimness=args.dimness)
+        else:
+            dis.show_image(args.path, brightness=args.brightness)
         dis.show()
 
 
