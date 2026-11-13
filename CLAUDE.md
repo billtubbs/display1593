@@ -184,8 +184,10 @@ the repo root (log files are written to the current directory).
 - **`colour_balance_test.py`** - interactive colour balance/intensity
   linearity chart (8 colour bars x 32 levels), port of the 2016
   `coltest.py` from the old repo; its default scales reproduce that
-  calibration (`rgb_scales.npy`) exactly. Adjust brightness and per-channel
-  gains at a prompt, save the scale to CSV. `--dry-run` without hardware.
+  calibration (`rgb_scales.npy`) exactly, except that red is scaled by
+  0.9 (`DEFAULT_GAINS`), after a 2026-11 retest found red's brightest
+  levels slightly too bright. Adjust brightness and per-channel gains at
+  a prompt, save the scale to CSV. `--dry-run` without hardware.
 - **`check_led_neighbours.py`** - interactive terminal tool to visually
   verify the nearest-neighbour data against the physical display (lights one
   LED white, its neighbours red, step through with keypresses).

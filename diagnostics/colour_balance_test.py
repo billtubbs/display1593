@@ -19,7 +19,7 @@ to 127 in the daytime (BCYCLE divisor 2) and down to 28 at night
 
 Commands (typed at the prompt, then Enter):
   0-7          brightness setting (peak red value ~ 46 * 1.15**n)
-  r|g|b GAIN   set a channel's gain, e.g. "g 0.8"
+  r|g|b GAIN   set a channel's gain (default DEFAULT_GAINS), e.g. "g 0.8"
   s            save the current scale to a CSV file
   q            quit (clears the display)
 
@@ -48,6 +48,12 @@ SCALE_PARAMS = {
 LOW_LEVEL_MEAN = 2.5
 LOW_LEVEL_MAX = 10
 
+# Default per-channel gains, applied after the low-level equalisation.
+# In a 2026-11 retest of the 2016 scales, red's brightest levels looked
+# slightly brighter than green and blue (the rest looked balanced); a
+# red gain of 0.9-0.95 fixed it, with 0.9 better at brightness 6-7.
+DEFAULT_GAINS = {"r": 0.9, "g": 1.0, "b": 1.0}
+
 # Brightness setting n multiplies the scales by BRIGHTNESS_STEP**n.
 N_BRIGHTNESS = 8
 BRIGHTNESS_STEP = 1.15
@@ -73,12 +79,15 @@ DISPLAY_SIZE = 2000.0
 CHANNELS = "rgb"
 
 
-def make_rgb_scales(gains=(1.0, 1.0, 1.0), brightness=0):
+def make_rgb_scales(gains=None, brightness=0):
     """
     (N_LEVELS, 3) float array of intensity values for each level and
     channel, at brightness setting `brightness`, with per-channel
-    `gains` applied after the low-level equalisation.
+    `gains` (three factors, default from DEFAULT_GAINS) applied after
+    the low-level equalisation.
     """
+    if gains is None:
+        gains = [DEFAULT_GAINS[ch] for ch in CHANNELS]
     scales = np.zeros((N_LEVELS, 3))
     for c, ch in enumerate(CHANNELS):
         base, x_max = SCALE_PARAMS[ch]
@@ -176,7 +185,7 @@ def main(brightness=DEFAULT_BRIGHTNESS, dry_run=False):
     from display1593.data.ledArray_data_1593 import centres_x, centres_y
 
     bar, level = chart_cells(np.asarray(centres_x), np.asarray(centres_y))
-    gains = (1.0, 1.0, 1.0)
+    gains = tuple(DEFAULT_GAINS[ch] for ch in CHANNELS)
 
     dis = None
     if not dry_run:
