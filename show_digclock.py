@@ -58,13 +58,14 @@ that, a failed update just keeps the last known value.
 
 Brightness
 ----------
-Digit intensities are requested in perceived terms and mapped to PWM
-values by `display1593.colour_correction`, so every digit colour looks
-equally bright. The face renders at full intensity (`FACE_BNESS`); the
-day/night dimming comes from the hourly colour correction brightness
-setting in `BCYCLE`, or a fixed one with `--brightness`. The face's
-per-LED shading was tuned in raw PWM values, so partly lit edge LEDs
-come out dimmer than they did before the correction.
+The digit colour's fully lit PWM values come from
+`display1593.colour_correction`, so every digit colour looks equally
+bright, at the hourly brightness setting in `BCYCLE` (or a fixed one
+with `--brightness`). Each LED's value from the face (rendered at full
+intensity, `FACE_BNESS`) is its coverage by a digit segment, and scales
+those PWM values linearly, so partly lit edge LEDs keep the digits'
+shape. (Putting the face values through the colour correction curve
+instead made the digits look thin, with gaps between segments.)
 """
 
 import argparse
@@ -79,7 +80,11 @@ from pathlib import Path
 import numpy as np
 
 from display1593 import Display1593
-from display1593.colour_correction import apply_colour_lut, colour_lut
+from display1593.colour_correction import (
+    apply_colour_lut,
+    apply_coverage,
+    colour_lut,
+)
 from display1593.digclock1 import SevenSegmentClockFace
 from display1593.logging_utils import configure_root_logging
 
@@ -315,14 +320,17 @@ def temperature_colour(temp):
 
 def colour_rgb(vals, colour, lut=None):
     """
-    (n, 3) uint8 RGB array: brightness values `vals` times `colour`,
-    then, if `lut` (from colour_correction.colour_lut) is given, mapped
-    from perceived intensity to PWM values.
+    (n, 3) uint8 PWM values for LEDs with face brightness values `vals`
+    (0-255, a digit segment's coverage of each LED) in `colour` (three
+    floats, 0-1): the colour's fully lit PWM values, from the colour
+    correction table `lut` (colour_correction.colour_lut; without one,
+    `colour` * 255), scaled linearly by vals / 255. Coverage is linear
+    so partly covered edge LEDs keep the digits' shape (see
+    colour_correction's docstring).
     """
-    rgb = np.clip(np.rint(np.outer(vals, colour)), 0, 255).astype("uint8")
-    if lut is not None:
-        rgb = apply_colour_lut(rgb, lut)
-    return rgb
+    colour_255 = np.rint(np.asarray(colour) * 255).astype("uint8")
+    peak = colour_255 if lut is None else apply_colour_lut(colour_255, lut)
+    return apply_coverage(peak, np.asarray(vals) / 255)
 
 
 def flash_rgb(vals, second, colour, lut=None):

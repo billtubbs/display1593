@@ -27,6 +27,19 @@ Usage, in any display script:
     lut = colour_lut(brightness=3)
     dis.set_all_leds(apply_colour_lut(rgb, lut))   # rgb: (n, 3), 0-255
 
+Shapes and anti-aliasing: for a shape drawn in one colour, with
+partly covered LEDs at its edges, look up the colour once, then scale
+its PWM values linearly by each LED's coverage (apply_coverage):
+
+    peak = apply_colour_lut(colour, lut)       # colour: (3,), 0-255
+    dis.set_leds(idx, apply_coverage(peak, coverage))   # coverage 0-1
+
+Don't put coverage through the table: light from neighbouring LEDs
+adds up linearly on the screen, so an LED half covered by a shape
+should give half the light (half the PWM duty), not half the perceived
+brightness, which is far less light. Doing that made the clock's
+digits look thin, with gaps between segments (2026-11).
+
 Scripts that don't want the correction just send PWM values directly.
 Kept import-light (numpy only) so it can be used without the hardware
 dependencies.
@@ -112,3 +125,15 @@ def apply_colour_lut(rgb, lut):
     """
     rgb = np.asarray(rgb)
     return lut[rgb.astype(np.intp), np.arange(3)]
+
+
+def apply_coverage(pwm_rgb, coverage):
+    """
+    (n, 3) uint8 PWM values: the PWM colour `pwm_rgb` (shape (3,), or
+    (n, 3) for one colour per LED) scaled linearly by `coverage`, shape
+    (n,), each 0-1 (the fraction of the LED covered by a shape, for
+    anti-aliasing; see the module docstring).
+    """
+    coverage = np.clip(np.asarray(coverage, dtype=float), 0, 1)
+    rgb = coverage[:, None] * np.asarray(pwm_rgb, dtype=float)
+    return np.clip(np.rint(rgb), 0, 255).astype("uint8")

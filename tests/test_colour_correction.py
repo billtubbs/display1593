@@ -85,3 +85,24 @@ def test_apply_colour_lut_per_channel():
     np.testing.assert_array_equal(
         out[3], [lut[10, 0], lut[128, 1], lut[255, 2]]
     )
+
+
+def test_apply_coverage_is_linear():
+    from display1593.colour_correction import apply_coverage
+
+    peak = np.array([110, 0, 200], dtype=np.uint8)
+    out = apply_coverage(peak, np.array([0.0, 0.25, 0.5, 1.0, 1.5]))
+    assert out.dtype == np.uint8
+    np.testing.assert_array_equal(
+        out,
+        [[0, 0, 0], [28, 0, 50], [55, 0, 100], [110, 0, 200], [110, 0, 200]],
+    )
+
+
+def test_apply_coverage_per_led_colours():
+    from display1593.colour_correction import apply_coverage
+
+    pwm = np.array([[100, 0, 0], [0, 100, 0]], dtype=np.uint8)
+    np.testing.assert_array_equal(
+        apply_coverage(pwm, [0.5, 1.0]), [[50, 0, 0], [0, 100, 0]]
+    )

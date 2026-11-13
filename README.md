@@ -388,6 +388,22 @@ outside 0-7, including negative and fractional ones, extrapolate the
 same scales. Using it is optional: a script can always send PWM values
 directly.
 
+For shapes with anti-aliased (partly lit) edges, use the table only for
+the shape's colour, and scale the result linearly by each LED's
+coverage:
+
+```python
+from display1593.colour_correction import apply_coverage
+
+peak = apply_colour_lut(colour, lut)  # colour: (3,), 0-255
+dis.set_leds(idx, apply_coverage(peak, coverage))  # coverage: 0-1
+```
+
+Light from neighbouring LEDs adds up linearly on the screen, so an LED
+half covered by a shape should give half the light. Putting coverage
+through the table (perceived intensity) gives far less light at the
+edges: the clock's digits looked thin, with gaps between segments.
+
 The scales come from a by-eye calibration on the display, first done
 in 2016 (`coltest.py` in the old repo) and re-checked in November 2026
 with `diagnostics/colour_balance_test.py`, which shows 8 colour bars x
@@ -395,8 +411,8 @@ with `diagnostics/colour_balance_test.py`, which shows 8 colour bars x
 balanced, except that red's brightest levels were slightly too bright;
 a red gain of 0.9 (`DEFAULT_GAINS`) fixed that.
 
-`show_digclock.py` always uses it, so every digit colour looks equally
-bright. Its day/night cycle (`BCYCLE`) is now a brightness setting per
+`show_digclock.py` always uses it for the digit colour (with linear
+coverage for the edges), so every digit colour looks equally bright. Its day/night cycle (`BCYCLE`) is now a brightness setting per
 hour: 7 in the middle of the day, 5, 1, then -2 and -3 at night (below
 the calibrated range). These were chosen (November 2026) to give peak
 red values (110, 83, 48, 31, 27) close to the clock's earlier PWM

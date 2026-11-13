@@ -115,7 +115,12 @@ Key pieces `display1593.py` relies on:
 - **`colour_correction.py`** - optional colour balance/intensity
   correction: `colour_lut(brightness, gains=None)` builds a (256, 3)
   uint8 table from requested (perceived) intensity 0-255 to PWM value,
-  `apply_colour_lut(rgb, lut)` applies it. Brightness settings 0-7 are
+  `apply_colour_lut(rgb, lut)` applies it. For shapes with anti-aliased
+  edges, look up the colour once and scale its PWM values *linearly* by
+  coverage with `apply_coverage(pwm_rgb, coverage)` - never put coverage
+  through the table (light adds linearly on the screen; doing so made
+  the clock's digits thin, with gaps between segments). Brightness
+  settings 0-7 are
   the calibrated range (x1.15 per step; others extrapolate). Scales are
   the 2016 by-eye calibration (`SCALE_PARAMS`) with a 0.9 red gain
   (`DEFAULT_GAINS`) from the 2026-11 retest with
@@ -174,16 +179,16 @@ Key pieces `display1593.py` relies on:
   Continuous colormaps (plasma, inferno, a constant-luminance
   blue-magenta-red blend) were tried first and dropped: odd colours on
   the LEDs and too little contrast for small temperature changes.
-  Re-evaluated at each minute rollover. Digit intensities always go
-  through `colour_correction` (`hour_lut()`): the face renders at full
-  intensity (`FACE_BNESS = 1`) and the dimming comes from `BCYCLE`'s
-  brightness setting for the hour (7 by day down to -3 at night, chosen
+  Re-evaluated at each minute rollover. The digit colour's fully lit
+  PWM values always come from `colour_correction` (`hour_lut()`), at
+  `BCYCLE`'s brightness setting for the hour (7 by day down to -3 at night, chosen
   2026-11 to match the peak red PWM of the earlier divisor cycle: 110,
   83, 48, 31, 27 vs. 127, 85, 51, 31, 28; not yet tuned by eye), or a
-  fixed `--brightness N`. `paint()` saturates at 255 where digits
-  overlap. The face's shading (`digdata.pickle`) was tuned in raw PWM
-  values, so partly lit edge LEDs come out much dimmer than before
-  (median lit red ~14 vs. 65 at midday).
+  fixed `--brightness N`. The face renders at full intensity
+  (`FACE_BNESS = 1`) and its per-LED values (segment coverage, from
+  `digdata.pickle`) scale those PWM values linearly (`colour_rgb()`,
+  via `apply_coverage`). `paint()` saturates at 255 where digits
+  overlap, so overlapping LEDs no longer exceed the peak.
 - **`show_image.py`** - crops/resizes and displays a single image file.
 - **`play_frames.py`** - plays any precomputed frame sequence (`.npz` or
   CSV directory, see `playback.py`) in a loop at `--fps` (default 24;
